@@ -1,5 +1,85 @@
 # Changelog
 
+## Version 2.1 (15 octobre 2025)
+
+### 🎉 Nouvelles fonctionnalités
+
+- **Mode interactif vs non-interactif**
+  - Option `-y, --non-interactive` pour installation automatique
+  - Confirmations utilisateur en mode interactif (par défaut)
+  - Demandes de confirmation pour chaque étape importante
+
+- **Mode Dry-Run**
+  - Option `-d, --dry-run` pour simuler l'installation
+  - Aucune modification du système en mode simulation
+  - Permet de vérifier ce qui sera installé sans risque
+
+- **Mode verbeux**
+  - Option `-v, --verbose` pour afficher plus de détails
+  - Messages de débogage pour le diagnostic
+  - Informations sur chaque étape détaillée
+
+- **Système de logging**
+  - Création automatique d'un fichier de log horodaté
+  - Option `--log FILE` pour personnaliser l'emplacement
+  - Tous les événements sont enregistrés avec timestamps
+
+- **Vérifications préalables améliorées**
+  - Vérification de l'espace disque (minimum 500 MB)
+  - Test de la connexion internet avec timeout
+  - Vérification des permissions sudo au début
+  - Maintien automatique de la session sudo pendant le script
+
+- **Système de backup et restauration**
+  - Création automatique d'un backup des paramètres actuels
+  - Sauvegarde des paramètres dconf (desktop et shell)
+  - Liste des extensions activées avant installation
+  - Possibilité de restaurer facilement en cas de problème
+
+- **Amélioration des téléchargements**
+  - Vérification de la taille des fichiers téléchargés
+  - 3 tentatives de téléchargement en cas d'échec
+  - Affichage de la taille des fichiers téléchargés
+  - Détection des téléchargements invalides
+
+- **Options de ligne de commande**
+  - `--skip-upgrade` : Sauter la mise à niveau système (apt upgrade)
+  - `-h, --help` : Affichage de l'aide complète
+  - Support de multiples options combinées
+
+- **Rapport final amélioré**
+  - Bannière ASCII art au démarrage
+  - Statistiques détaillées (extensions installées, erreurs, warnings)
+  - Information sur l'emplacement du fichier de log
+  - Message sur le backup créé
+  - Distinction visuelle entre dry-run et installation réelle
+
+### 🔧 Améliorations techniques
+
+- Comptage des extensions installées avec succès
+- Comptage des fichiers de polices installés
+- Meilleure gestion des processus sudo (keep-alive)
+- Détection automatique de la version complète de GNOME
+- Vérification de chaque paquet avant installation
+- Messages de débogage contextuels en mode verbose
+
+### 📊 Amélioration UX
+
+- Banner ASCII art au démarrage
+- Code couleur amélioré (ajout de CYAN et MAGENTA)
+- Messages dry-run clairement identifiés
+- Progression plus visible avec compteurs
+- Aide complète avec exemples d'utilisation
+
+### 🐛 Corrections
+
+- Meilleure gestion des timeouts de téléchargement
+- Vérification de la validité des archives téléchargées
+- Nettoyage amélioré en cas d'erreur
+- Kill du processus sudo keeper à la fin
+
+---
+
 ## Version 2.0 (15 octobre 2025)
 
 ### 🎉 Améliorations majeures

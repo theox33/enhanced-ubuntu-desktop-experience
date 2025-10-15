@@ -39,6 +39,7 @@ Ce projet fournit un script d'installation automatisé pour transformer une inst
 - Ubuntu Desktop (22.04 ou supérieur recommandé)
 - GNOME Shell (la version sera détectée automatiquement)
 - Connexion Internet active
+- ~500 MB d'espace disque disponible
 - Accès sudo
 
 ### Installation rapide
@@ -53,6 +54,33 @@ chmod +x install.sh
 
 # Exécuter le script
 ./install.sh
+```
+
+### Options avancées
+
+Le script supporte plusieurs options pour personnaliser l'installation :
+
+```bash
+# Afficher l'aide
+./install.sh --help
+
+# Installation automatique sans confirmation
+./install.sh -y
+
+# Simuler l'installation (dry-run)
+./install.sh -d
+
+# Mode verbeux pour plus de détails
+./install.sh -v
+
+# Sauter la mise à niveau système
+./install.sh --skip-upgrade
+
+# Installation automatique avec log personnalisé
+./install.sh -y --log /tmp/mon-installation.log
+
+# Combinaison d'options
+./install.sh -v -y --skip-upgrade
 ```
 
 ### Installation manuelle
@@ -89,12 +117,49 @@ Le script `install.sh` effectue une installation complète et robuste avec gesti
 
 ### 🔧 Fonctionnalités avancées du script
 
-- **Gestion d'erreurs robuste** : Le script continue même en cas d'erreur non-critique
-- **Détection automatique** : Versions de GNOME, noms de thèmes, compatibilité des extensions
-- **Timeouts** : Évite les blocages sur les téléchargements lents
-- **Vérifications** : Connexion internet, fichiers téléchargés, installation réussie
-- **Fallbacks** : Détecte automatiquement les variantes de noms (thèmes, curseurs)
-- **Rapport final** : Comptage précis des erreurs et avertissements
+**Version 2.1** avec améliorations majeures :
+
+- **Modes d'exécution flexibles**
+  - Mode interactif (défaut) : Confirmations à chaque étape
+  - Mode automatique (`-y`) : Installation sans intervention
+  - Mode dry-run (`-d`) : Simulation sans modification du système
+
+- **Système de logging complet**
+  - Fichier de log automatique horodaté
+  - Tous les événements enregistrés avec timestamps
+  - Log personnalisable avec `--log`
+
+- **Vérifications avancées**
+  - Espace disque disponible (minimum 500 MB)
+  - Connexion internet avec timeout
+  - Version de GNOME Shell détectée
+  - Permissions sudo vérifiées au démarrage
+
+- **Backup et restauration**
+  - Sauvegarde automatique des paramètres actuels
+  - Possibilité de restaurer en cas de problème
+  - Backup des paramètres dconf et liste des extensions
+
+- **Gestion d'erreurs robuste**
+  - Le script continue même en cas d'erreur non-critique
+  - Compteurs d'erreurs et d'avertissements
+  - Rapport final détaillé avec statistiques
+
+- **Détection automatique**
+  - Versions de GNOME compatibles
+  - Noms de thèmes et variantes
+  - Fichiers téléchargés valides
+  - Paquets déjà installés
+
+- **Options pratiques**
+  - `--skip-upgrade` : Gagner du temps en sautant apt upgrade
+  - `-v` : Mode verbeux pour le débogage
+  - `--help` : Aide complète avec exemples
+
+- **Rapport final amélioré**
+  - Statistiques précises (extensions installées, erreurs, warnings)
+  - Indication du fichier de log créé
+  - Information sur le backup disponible
 
 ## ⚠️ Après l'installation
 
@@ -133,6 +198,40 @@ Le script télécharge les ressources depuis les sources officielles :
 - **Lavanda GTK Theme** : GitHub (vinceliuice)
 
 ## 🐛 Dépannage
+
+### Tester avant d'installer
+
+Vous pouvez simuler l'installation pour voir ce qui sera fait :
+
+```bash
+./install.sh -d  # Mode dry-run (simulation)
+./install.sh -v  # Mode verbeux pour plus de détails
+```
+
+### Consulter les logs
+
+Chaque installation crée un fichier de log :
+
+```bash
+# Le fichier est automatiquement créé dans ~/
+ls -lt ~/ | grep gnome-install
+
+# Consulter le log
+cat ~/gnome-install-YYYYMMDD-HHMMSS.log
+```
+
+### Restaurer un backup
+
+Si vous avez des problèmes après l'installation :
+
+```bash
+# Trouver le backup
+ls -lt ~/.gnome-config-backup-*
+
+# Restaurer les paramètres
+dconf load /org/gnome/desktop/ < ~/.gnome-config-backup-*/desktop-settings.dconf
+dconf load /org/gnome/shell/ < ~/.gnome-config-backup-*/shell-settings.dconf
+```
 
 ### Le script affiche des avertissements
 

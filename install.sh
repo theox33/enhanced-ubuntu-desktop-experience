@@ -3,37 +3,145 @@
 #==============================================================================
 # Script d'installation de la configuration GNOME personnalisée
 # Pour Ubuntu Desktop avec GNOME
-# Version améliorée avec gestion d'erreurs robuste
+# Version 2.1 - Améliorations : mode interactif, logs, dry-run, vérifications
 #==============================================================================
+
+VERSION="2.1.0"
 
 # Couleurs pour les messages
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
+CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Compteurs d'erreurs
 ERRORS=0
 WARNINGS=0
 
-# Fonction pour afficher les messages
+# Options du script
+DRY_RUN=false
+VERBOSE=false
+INTERACTIVE=true
+SKIP_UPGRADE=false
+LOG_FILE="$HOME/gnome-install-$(date +%Y%m%d-%H%M%S).log"
+
+# Fonction pour afficher l'aide
+show_help() {
+    cat << EOF
+╔════════════════════════════════════════════════════════════════════════╗
+║  Enhanced Ubuntu Desktop Experience - Installeur v${VERSION}             ║
+╚════════════════════════════════════════════════════════════════════════╝
+
+Usage: $0 [OPTIONS]
+
+OPTIONS:
+    -h, --help              Afficher cette aide
+    -v, --verbose           Mode verbeux (afficher plus de détails)
+    -y, --non-interactive   Mode non-interactif (pas de questions)
+    -d, --dry-run           Simuler l'installation sans rien modifier
+    --skip-upgrade          Sauter la mise à niveau du système (apt upgrade)
+    --log FILE              Chemin personnalisé pour le fichier de log
+                            (défaut: ~/gnome-install-YYYYMMDD-HHMMSS.log)
+
+EXEMPLES:
+    $0                      Installation normale (interactive)
+    $0 -y                   Installation automatique
+    $0 -d                   Simuler l'installation
+    $0 -v --skip-upgrade    Mode verbeux sans mise à niveau système
+    $0 -y --log /tmp/install.log  Installation auto avec log personnalisé
+
+DESCRIPTION:
+    Ce script installe une configuration GNOME personnalisée avec:
+    - Polices: Comfortaa, JetBrains Mono
+    - Thème: Lavanda-Sea
+    - Icônes: Uos-fulldistro-icons
+    - Curseurs: Bibata-Modern-Ice
+    - 12 extensions GNOME
+
+Le script crée automatiquement un fichier de log dans votre dossier personnel.
+
+EOF
+    exit 0
+}
+
+# Parse des arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help)
+            show_help
+            ;;
+        -v|--verbose)
+            VERBOSE=true
+            shift
+            ;;
+        -y|--non-interactive)
+            INTERACTIVE=false
+            shift
+            ;;
+        -d|--dry-run)
+            DRY_RUN=true
+            INTERACTIVE=false
+            shift
+            ;;
+        --skip-upgrade)
+            SKIP_UPGRADE=true
+            shift
+            ;;
+        --log)
+            LOG_FILE="$2"
+            shift 2
+            ;;
+        *)
+            echo "Option inconnue: $1"
+            echo "Utilisez --help pour voir les options disponibles"
+            exit 1
+            ;;
+    esac
+done
+
+# Fonction de logging
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
+}
+
+# Fonctions d'affichage améliorées
 print_status() {
     echo -e "${BLUE}[INFO]${NC} $1"
+    log "INFO: $1"
 }
 
 print_success() {
     echo -e "${GREEN}[✓]${NC} $1"
+    log "SUCCESS: $1"
 }
 
 print_error() {
     echo -e "${RED}[✗]${NC} $1"
+    log "ERROR: $1"
     ((ERRORS++))
 }
 
 print_warning() {
     echo -e "${YELLOW}[!]${NC} $1"
+    log "WARNING: $1"
     ((WARNINGS++))
+}
+
+print_verbose() {
+    if [ "$VERBOSE" = true ]; then
+        echo -e "${CYAN}[DEBUG]${NC} $1"
+        log "DEBUG: $1"
+    fi
+}
+
+print_dry_run() {
+    if [ "$DRY_RUN" = true ]; then
+        echo -e "${MAGENTA}[DRY-RUN]${NC} $1"
+        log "DRY-RUN: $1"
+    fi
 }
 
 # Fonction pour vérifier si une commande existe
@@ -52,9 +160,148 @@ check_error() {
     fi
 }
 
+# Fonction pour demander confirmation
+ask_confirmation() {
+    if [ "$INTERACTIVE" = false ]; then
+        return 0
+    fi
+    
+    local question="$1"
+    local default="${2:-y}"
+    
+    if [ "$default" = "y" ]; then
+        read -p "$question [O/n] " -n 1 -r
+    else
+        read -p "$question [o/N] " -n 1 -r
+    fi
+    echo
+    
+    if [[ $REPLY =~ ^[OoYy]$ ]] || [[ -z $REPLY && $default = "y" ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Fonction pour vérifier l'espace disque
+check_disk_space() {
+    local required_mb=500
+    local available_mb=$(df -m "$HOME" | awk 'NR==2 {print $4}')
+    
+    print_verbose "Espace disque disponible: ${available_mb} MB (requis: ${required_mb} MB)"
+    
+    if [ "$available_mb" -lt "$required_mb" ]; then
+        print_error "Espace disque insuffisant! Requis: ${required_mb} MB, Disponible: ${available_mb} MB"
+        return 1
+    else
+        print_success "Espace disque suffisant (${available_mb} MB disponibles)"
+        return 0
+    fi
+}
+
+# Fonction pour créer un point de restauration (backup des paramètres)
+create_backup() {
+    if [ "$DRY_RUN" = true ]; then
+        print_dry_run "Création d'un backup des paramètres actuels"
+        return 0
+    fi
+    
+    local backup_dir="$HOME/.gnome-config-backup-$(date +%Y%m%d-%H%M%S)"
+    print_status "Création d'un backup des paramètres actuels dans $backup_dir"
+    
+    mkdir -p "$backup_dir"
+    
+    # Backup des paramètres gsettings
+    dconf dump /org/gnome/desktop/ > "$backup_dir/desktop-settings.dconf" 2>/dev/null
+    dconf dump /org/gnome/shell/ > "$backup_dir/shell-settings.dconf" 2>/dev/null
+    
+    # Liste des extensions actuellement activées
+    gnome-extensions list --enabled > "$backup_dir/enabled-extensions.txt" 2>/dev/null
+    
+    print_success "Backup créé: $backup_dir"
+    log "Backup créé dans: $backup_dir"
+    
+    echo "$backup_dir" > "$HOME/.gnome-config-last-backup"
+}
+
+# Fonction pour restaurer depuis un backup
+restore_backup() {
+    local backup_dir="$1"
+    
+    if [ -z "$backup_dir" ] && [ -f "$HOME/.gnome-config-last-backup" ]; then
+        backup_dir=$(cat "$HOME/.gnome-config-last-backup")
+    fi
+    
+    if [ -z "$backup_dir" ] || [ ! -d "$backup_dir" ]; then
+        print_error "Aucun backup trouvé"
+        return 1
+    fi
+    
+    print_status "Restauration depuis: $backup_dir"
+    
+    if [ -f "$backup_dir/desktop-settings.dconf" ]; then
+        dconf load /org/gnome/desktop/ < "$backup_dir/desktop-settings.dconf"
+    fi
+    
+    if [ -f "$backup_dir/shell-settings.dconf" ]; then
+        dconf load /org/gnome/shell/ < "$backup_dir/shell-settings.dconf"
+    fi
+    
+    print_success "Restauration terminée"
+}
+
+#==============================================================================
+# DÉBUT DU SCRIPT
+#==============================================================================
+
+# Banner
+echo -e "${CYAN}"
+cat << "EOF"
+╔════════════════════════════════════════════════════════════════════════╗
+║                                                                        ║
+║     ███████╗███╗   ██╗██╗  ██╗ █████╗ ███╗   ██╗ ██████╗███████╗     ║
+║     ██╔════╝████╗  ██║██║  ██║██╔══██╗████╗  ██║██╔════╝██╔════╝     ║
+║     █████╗  ██╔██╗ ██║███████║███████║██╔██╗ ██║██║     █████╗       ║
+║     ██╔══╝  ██║╚██╗██║██╔══██║██╔══██║██║╚██╗██║██║     ██╔══╝       ║
+║     ███████╗██║ ╚████║██║  ██║██║  ██║██║ ╚████║╚██████╗███████╗     ║
+║     ╚══════╝╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝╚══════╝     ║
+║                                                                        ║
+║            Ubuntu GNOME Desktop Experience Installer                  ║
+║                         Version 2.1.0                                  ║
+║                                                                        ║
+╚════════════════════════════════════════════════════════════════════════╝
+EOF
+echo -e "${NC}"
+
+print_status "Initialisation du script d'installation..."
+print_status "Fichier de log: $LOG_FILE"
+log "=== Début de l'installation - Version $VERSION ==="
+log "Options: DRY_RUN=$DRY_RUN, VERBOSE=$VERBOSE, INTERACTIVE=$INTERACTIVE, SKIP_UPGRADE=$SKIP_UPGRADE"
+
+if [ "$DRY_RUN" = true ]; then
+    echo -e "${MAGENTA}"
+    echo "╔════════════════════════════════════════════════════════════════════════╗"
+    echo "║  MODE DRY-RUN ACTIVÉ - Aucune modification ne sera effectuée          ║"
+    echo "╚════════════════════════════════════════════════════════════════════════╝"
+    echo -e "${NC}"
+fi
+
+# Vérification de l'espace disque
+print_status "Vérification de l'espace disque disponible..."
+if ! check_disk_space; then
+    if [ "$INTERACTIVE" = true ]; then
+        if ! ask_confirmation "Continuer malgré l'espace insuffisant?" "n"; then
+            print_error "Installation annulée par l'utilisateur"
+            exit 1
+        fi
+    else
+        exit 1
+    fi
+fi
+
 # Vérification de la connexion internet
 print_status "Vérification de la connexion internet..."
-if ping -c 1 google.com &> /dev/null; then
+if ping -c 1 -W 3 google.com &> /dev/null; then
     print_success "Connexion internet OK"
 else
     print_error "Pas de connexion internet. Le script nécessite une connexion active."
@@ -63,22 +310,84 @@ fi
 
 # Vérification de la version de GNOME
 print_status "Vérification de la version de GNOME Shell..."
-GNOME_VERSION=$(gnome-shell --version | cut -d ' ' -f 3 | cut -d '.' -f 1)
-if [ -z "$GNOME_VERSION" ]; then
+if command_exists gnome-shell; then
+    GNOME_VERSION=$(gnome-shell --version 2>/dev/null | grep -oP '\d+' | head -1)
+    if [ -n "$GNOME_VERSION" ]; then
+        print_success "GNOME Shell version $GNOME_VERSION détecté"
+        print_verbose "Version complète: $(gnome-shell --version)"
+    else
+        print_error "Impossible de détecter la version de GNOME Shell"
+        exit 1
+    fi
+else
     print_error "GNOME Shell n'est pas installé ou non détecté"
     exit 1
+fi
+
+# Vérification des droits sudo
+print_status "Vérification des permissions sudo..."
+if [ "$DRY_RUN" = false ]; then
+    if ! sudo -v; then
+        print_error "Ce script nécessite des permissions sudo"
+        exit 1
+    fi
+    print_success "Permissions sudo OK"
+    # Garder sudo actif pendant le script
+    (while true; do sudo -v; sleep 50; done) &
+    SUDO_KEEPER_PID=$!
+    trap "kill $SUDO_KEEPER_PID 2>/dev/null" EXIT
+fi
+
+# Création du backup
+if [ "$INTERACTIVE" = true ]; then
+    if ask_confirmation "Créer un backup des paramètres actuels?"; then
+        create_backup
+    fi
 else
-    print_success "GNOME Shell version $GNOME_VERSION détecté"
+    create_backup
+fi
+
+# Confirmation finale en mode interactif
+if [ "$INTERACTIVE" = true ] && [ "$DRY_RUN" = false ]; then
+    echo ""
+    echo -e "${YELLOW}Cette installation va:${NC}"
+    echo "  • Installer/mettre à jour des paquets système"
+    echo "  • Télécharger ~100 MB de ressources"
+    echo "  • Installer 12 extensions GNOME"
+    echo "  • Modifier les thèmes et polices système"
+    echo ""
+    if ! ask_confirmation "Continuer l'installation?"; then
+        print_warning "Installation annulée par l'utilisateur"
+        exit 0
+    fi
 fi
 
 #==============================================================================
 # ÉTAPE 1: Mise à jour du système
 #==============================================================================
-print_status "Mise à jour du système..."
-sudo apt update
-if check_error "Échec de la mise à jour des dépôts" "Dépôts mis à jour"; then
-    sudo apt upgrade -y
-    check_error "Échec de la mise à niveau des paquets" "Système mis à jour"
+print_status "Mise à jour des dépôts de paquets..."
+
+if [ "$DRY_RUN" = false ]; then
+    sudo apt update
+    check_error "Échec de la mise à jour des dépôts" "Dépôts mis à jour"
+    
+    if [ "$SKIP_UPGRADE" = false ]; then
+        if [ "$INTERACTIVE" = true ]; then
+            if ask_confirmation "Mettre à niveau les paquets système? (peut prendre du temps)"; then
+                sudo apt upgrade -y
+                check_error "Échec de la mise à niveau" "Système mis à jour"
+            else
+                print_warning "Mise à niveau système ignorée"
+            fi
+        else
+            sudo apt upgrade -y
+            check_error "Échec de la mise à niveau" "Système mis à jour"
+        fi
+    else
+        print_warning "Mise à niveau système ignorée (--skip-upgrade)"
+    fi
+else
+    print_dry_run "apt update && apt upgrade -y"
 fi
 
 #==============================================================================
@@ -86,100 +395,110 @@ fi
 #==============================================================================
 print_status "Installation des applications nécessaires..."
 
-# Installation de flatpak
-if ! command_exists flatpak; then
-    print_status "Installation de Flatpak..."
-    sudo apt install -y flatpak
-    check_error "Échec de l'installation de Flatpak" "Flatpak installé"
-    sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+PACKAGES=(
+    "flatpak"
+    "gnome-tweaks"
+    "gnome-shell-extensions"
+    "gnome-shell-extension-manager"
+    "wget"
+    "unzip"
+    "tar"
+    "dconf-cli"
+    "gir1.2-gtop-2.0"
+    "lm-sensors"
+    "curl"
+    "libglib2.0-dev-bin"
+)
+
+for package in "${PACKAGES[@]}"; do
+    if command_exists "$package" || dpkg -l | grep -q "^ii  $package "; then
+        print_verbose "$package déjà installé"
+    else
+        print_status "Installation de $package..."
+        if [ "$DRY_RUN" = false ]; then
+            sudo apt install -y "$package"
+            check_error "Échec de l'installation de $package" "$package installé"
+        else
+            print_dry_run "apt install -y $package"
+        fi
+    fi
+done
+
+# Configuration de Flatpak
+if [ "$DRY_RUN" = false ]; then
+    if ! flatpak remote-list | grep -q flathub; then
+        print_status "Ajout du dépôt Flathub..."
+        sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+        print_success "Dépôt Flathub ajouté"
+    else
+        print_verbose "Dépôt Flathub déjà configuré"
+    fi
 else
-    print_success "Flatpak déjà installé"
+    print_dry_run "flatpak remote-add --if-not-exists flathub ..."
 fi
-
-# Installation de GNOME Tweaks (Ajustements)
-if ! command_exists gnome-tweaks; then
-    print_status "Installation de GNOME Tweaks..."
-    sudo apt install -y gnome-tweaks
-    check_error "Échec de l'installation de GNOME Tweaks" "GNOME Tweaks installé"
-else
-    print_success "GNOME Tweaks déjà installé"
-fi
-
-# Installation du gestionnaire d'extensions GNOME
-if ! command_exists gnome-extensions; then
-    print_status "Installation du gestionnaire d'extensions GNOME..."
-    sudo apt install -y gnome-shell-extensions gnome-shell-extension-manager
-    check_error "Échec de l'installation du gestionnaire d'extensions" "Gestionnaire d'extensions installé"
-else
-    print_success "Gestionnaire d'extensions déjà installé"
-fi
-
-# Installation d'outils nécessaires
-print_status "Installation des outils nécessaires..."
-sudo apt install -y wget unzip tar dconf-cli gir1.2-gtop-2.0 lm-sensors curl
-check_error "Échec de l'installation des outils" "Outils installés"
-
-# Installation de glib-compile-schemas (nécessaire pour certaines extensions)
-sudo apt install -y libglib2.0-dev-bin
-check_error "Échec de l'installation de glib-compile-schemas" "glib-compile-schemas installé"
 
 #==============================================================================
 # ÉTAPE 3: Création des dossiers nécessaires
 #==============================================================================
 print_status "Création des dossiers pour les ressources..."
-mkdir -p "$HOME/.icons"
-mkdir -p "$HOME/.themes"
-mkdir -p "$HOME/.local/share/fonts"
-mkdir -p "$HOME/.local/share/gnome-shell/extensions"
-mkdir -p "$HOME/Downloads/gnome-config-temp"
+
+DIRS=(
+    "$HOME/.icons"
+    "$HOME/.themes"
+    "$HOME/.local/share/fonts"
+    "$HOME/.local/share/gnome-shell/extensions"
+    "$HOME/Downloads/gnome-config-temp"
+)
+
+for dir in "${DIRS[@]}"; do
+    if [ "$DRY_RUN" = false ]; then
+        mkdir -p "$dir"
+        print_verbose "Dossier créé/vérifié: $dir"
+    else
+        print_dry_run "mkdir -p $dir"
+    fi
+done
+
 print_success "Dossiers créés"
 
-cd "$HOME/Downloads/gnome-config-temp"
+if [ "$DRY_RUN" = false ]; then
+    cd "$HOME/Downloads/gnome-config-temp"
+fi
 
 #==============================================================================
 # ÉTAPE 4: Téléchargement des ressources
 #==============================================================================
-print_status "Téléchargement des ressources..."
+print_status "Téléchargement des ressources (peut prendre quelques minutes)..."
 
-# Comfortaa
-print_status "Téléchargement des polices Comfortaa..."
-if wget --timeout=30 -O comfortaa.zip "https://dl.dafont.com/dl/?f=comfortaa" 2>/dev/null; then
-    print_success "Comfortaa téléchargé"
-else
-    print_error "Échec du téléchargement de Comfortaa"
-fi
+declare -A DOWNLOADS=(
+    ["comfortaa.zip"]="https://dl.dafont.com/dl/?f=comfortaa"
+    ["JetBrainsMono.zip"]="https://download.jetbrains.com/fonts/JetBrainsMono-2.304.zip"
+    ["Bibata-Modern-Ice.tar.xz"]="https://github.com/ful1e5/Bibata_Cursor/releases/download/v2.0.7/Bibata-Modern-Ice-Right.tar.xz"
+    ["Uos-fulldistro-icons.zip"]="https://github.com/zayronxio/Uos-fulldistro-icons/archive/refs/heads/master.zip"
+    ["Lavanda-gtk-theme.tar.gz"]="https://github.com/vinceliuice/Lavanda-gtk-theme/archive/refs/tags/2024-04-28.tar.gz"
+)
 
-# JetBrains Mono
-print_status "Téléchargement de JetBrains Mono..."
-if wget --timeout=30 -O JetBrainsMono.zip "https://download.jetbrains.com/fonts/JetBrainsMono-2.304.zip" 2>/dev/null; then
-    print_success "JetBrains Mono téléchargé"
-else
-    print_error "Échec du téléchargement de JetBrains Mono"
-fi
-
-# Bibata Cursor
-print_status "Téléchargement du curseur Bibata-Modern-Ice..."
-if wget --timeout=30 -O Bibata-Modern-Ice.tar.xz "https://github.com/ful1e5/Bibata_Cursor/releases/download/v2.0.7/Bibata-Modern-Ice-Right.tar.xz" 2>/dev/null; then
-    print_success "Bibata-Modern-Ice téléchargé"
-else
-    print_error "Échec du téléchargement de Bibata-Modern-Ice"
-fi
-
-# Icônes Uos
-print_status "Téléchargement des icônes Uos-fulldistro..."
-if wget --timeout=30 -O Uos-fulldistro-icons.zip "https://github.com/zayronxio/Uos-fulldistro-icons/archive/refs/heads/master.zip" 2>/dev/null; then
-    print_success "Uos-fulldistro-icons téléchargé"
-else
-    print_error "Échec du téléchargement de Uos-fulldistro-icons"
-fi
-
-# Thème Lavanda
-print_status "Téléchargement du thème Lavanda..."
-if wget --timeout=30 -O Lavanda-gtk-theme.tar.gz "https://github.com/vinceliuice/Lavanda-gtk-theme/archive/refs/tags/2024-04-28.tar.gz" 2>/dev/null; then
-    print_success "Lavanda-gtk-theme téléchargé"
-else
-    print_error "Échec du téléchargement de Lavanda-gtk-theme"
-fi
+for file in "${!DOWNLOADS[@]}"; do
+    url="${DOWNLOADS[$file]}"
+    print_status "Téléchargement de $file..."
+    
+    if [ "$DRY_RUN" = false ]; then
+        if wget --timeout=30 --tries=3 -O "$file" "$url" 2>/dev/null; then
+            # Vérification de la taille du fichier
+            size=$(stat -c%s "$file" 2>/dev/null || echo "0")
+            if [ "$size" -gt 1000 ]; then
+                print_success "$file téléchargé ($(numfmt --to=iec-i --suffix=B $size))"
+            else
+                print_error "$file téléchargé mais semble invalide (taille: $size bytes)"
+                rm -f "$file"
+            fi
+        else
+            print_error "Échec du téléchargement de $file"
+        fi
+    else
+        print_dry_run "wget $url -O $file"
+    fi
+done
 
 #==============================================================================
 # ÉTAPE 5: Extraction et installation des polices
@@ -187,37 +506,44 @@ fi
 print_status "Installation des polices..."
 
 # Comfortaa
-if [ -f comfortaa.zip ]; then
+if [ -f "comfortaa.zip" ] || [ "$DRY_RUN" = true ]; then
     print_status "Extraction de Comfortaa..."
-    unzip -o -q comfortaa.zip -d comfortaa 2>/dev/null
-    if [ $? -eq 0 ]; then
-        # Copie de tous les fichiers de police trouvés
-        find comfortaa -type f \( -name "*.ttf" -o -name "*.otf" \) -exec cp {} "$HOME/.local/share/fonts/" \; 2>/dev/null
+    if [ "$DRY_RUN" = false ]; then
+        unzip -o -q comfortaa.zip -d comfortaa 2>/dev/null
         if [ $? -eq 0 ]; then
-            print_success "Comfortaa installé"
+            font_count=$(find comfortaa -type f \( -name "*.ttf" -o -name "*.otf" \) -exec cp {} "$HOME/.local/share/fonts/" \; -print | wc -l)
+            if [ "$font_count" -gt 0 ]; then
+                print_success "Comfortaa installé ($font_count fichiers de police)"
+            else
+                print_error "Aucune police trouvée dans l'archive Comfortaa"
+            fi
         else
-            print_error "Impossible de copier les polices Comfortaa"
+            print_error "Impossible d'extraire Comfortaa"
         fi
     else
-        print_error "Impossible d'extraire Comfortaa"
+        print_dry_run "Extraction et installation de Comfortaa"
     fi
 else
     print_warning "Fichier Comfortaa non trouvé - sauté"
 fi
 
 # JetBrains Mono
-if [ -f JetBrainsMono.zip ]; then
+if [ -f "JetBrainsMono.zip" ] || [ "$DRY_RUN" = true ]; then
     print_status "Extraction de JetBrains Mono..."
-    unzip -o -q JetBrainsMono.zip -d JetBrainsMono 2>/dev/null
-    if [ $? -eq 0 ]; then
-        find JetBrainsMono -type f -name "*.ttf" -exec cp {} "$HOME/.local/share/fonts/" \; 2>/dev/null
+    if [ "$DRY_RUN" = false ]; then
+        unzip -o -q JetBrainsMono.zip -d JetBrainsMono 2>/dev/null
         if [ $? -eq 0 ]; then
-            print_success "JetBrains Mono installé"
+            font_count=$(find JetBrainsMono -type f -name "*.ttf" -exec cp {} "$HOME/.local/share/fonts/" \; -print | wc -l)
+            if [ "$font_count" -gt 0 ]; then
+                print_success "JetBrains Mono installé ($font_count fichiers de police)"
+            else
+                print_error "Aucune police trouvée dans l'archive JetBrains Mono"
+            fi
         else
-            print_error "Impossible de copier les polices JetBrains Mono"
+            print_error "Impossible d'extraire JetBrains Mono"
         fi
     else
-        print_error "Impossible d'extraire JetBrains Mono"
+        print_dry_run "Extraction et installation de JetBrains Mono"
     fi
 else
     print_warning "Fichier JetBrains Mono non trouvé - sauté"
@@ -225,16 +551,24 @@ fi
 
 # Mise à jour du cache des polices
 print_status "Mise à jour du cache des polices..."
-fc-cache -f -v > /dev/null 2>&1
-check_error "Échec de la mise à jour du cache des polices" "Cache des polices mis à jour"
+if [ "$DRY_RUN" = false ]; then
+    fc-cache -f -v > /dev/null 2>&1
+    check_error "Échec de la mise à jour du cache des polices" "Cache des polices mis à jour"
+else
+    print_dry_run "fc-cache -f -v"
+fi
 
 #==============================================================================
 # ÉTAPE 6: Installation des curseurs
 #==============================================================================
 print_status "Installation des curseurs Bibata-Modern-Ice..."
-if [ -f Bibata-Modern-Ice.tar.xz ]; then
-    tar -xf Bibata-Modern-Ice.tar.xz -C "$HOME/.icons/" 2>/dev/null
-    check_error "Échec de l'extraction des curseurs" "Curseurs Bibata-Modern-Ice installés"
+if [ -f "Bibata-Modern-Ice.tar.xz" ] || [ "$DRY_RUN" = true ]; then
+    if [ "$DRY_RUN" = false ]; then
+        tar -xf Bibata-Modern-Ice.tar.xz -C "$HOME/.icons/" 2>/dev/null
+        check_error "Échec de l'extraction des curseurs" "Curseurs Bibata-Modern-Ice installés"
+    else
+        print_dry_run "tar -xf Bibata-Modern-Ice.tar.xz"
+    fi
 else
     print_warning "Fichier Bibata-Modern-Ice non trouvé - sauté"
 fi
@@ -243,13 +577,17 @@ fi
 # ÉTAPE 7: Installation des icônes
 #==============================================================================
 print_status "Installation des icônes Uos-fulldistro..."
-if [ -f Uos-fulldistro-icons.zip ]; then
-    unzip -o -q Uos-fulldistro-icons.zip 2>/dev/null
-    if [ -d "Uos-fulldistro-icons-master" ]; then
-        cp -r Uos-fulldistro-icons-master "$HOME/.icons/Uos-fulldistro-icons"
-        check_error "Échec de la copie des icônes" "Icônes Uos-fulldistro installées"
+if [ -f "Uos-fulldistro-icons.zip" ] || [ "$DRY_RUN" = true ]; then
+    if [ "$DRY_RUN" = false ]; then
+        unzip -o -q Uos-fulldistro-icons.zip 2>/dev/null
+        if [ -d "Uos-fulldistro-icons-master" ]; then
+            cp -r Uos-fulldistro-icons-master "$HOME/.icons/Uos-fulldistro-icons"
+            check_error "Échec de la copie des icônes" "Icônes Uos-fulldistro installées"
+        else
+            print_error "Dossier Uos-fulldistro-icons-master non trouvé après extraction"
+        fi
     else
-        print_error "Dossier Uos-fulldistro-icons-master non trouvé après extraction"
+        print_dry_run "Extraction et installation des icônes Uos-fulldistro"
     fi
 else
     print_warning "Fichier Uos-fulldistro-icons non trouvé - sauté"
@@ -259,26 +597,29 @@ fi
 # ÉTAPE 8: Installation du thème Lavanda
 #==============================================================================
 print_status "Installation du thème Lavanda..."
-if [ -f Lavanda-gtk-theme.tar.gz ]; then
-    tar -xzf Lavanda-gtk-theme.tar.gz 2>/dev/null
-    if [ -d "Lavanda-gtk-theme-2024-04-28" ]; then
-        cd Lavanda-gtk-theme-2024-04-28
-        # Installation avec gestion d'erreurs
-        if [ -x "./install.sh" ]; then
-            ./install.sh -c dark -t blue --tweaks nord 2>/dev/null || {
-                print_warning "Installation automatique du thème échouée, tentative manuelle..."
-                # Copie manuelle si le script échoue
-                if [ -d "themes" ]; then
-                    cp -r themes/* "$HOME/.themes/" 2>/dev/null
-                fi
-            }
-            print_success "Thème Lavanda installé"
+if [ -f "Lavanda-gtk-theme.tar.gz" ] || [ "$DRY_RUN" = true ]; then
+    if [ "$DRY_RUN" = false ]; then
+        tar -xzf Lavanda-gtk-theme.tar.gz 2>/dev/null
+        if [ -d "Lavanda-gtk-theme-2024-04-28" ]; then
+            cd Lavanda-gtk-theme-2024-04-28
+            if [ -x "./install.sh" ]; then
+                print_verbose "Exécution du script d'installation du thème..."
+                ./install.sh -c dark -t blue --tweaks nord 2>/dev/null || {
+                    print_warning "Installation automatique du thème échouée, tentative manuelle..."
+                    if [ -d "themes" ]; then
+                        cp -r themes/* "$HOME/.themes/" 2>/dev/null
+                    fi
+                }
+                print_success "Thème Lavanda installé"
+            else
+                print_error "Script d'installation du thème Lavanda non trouvé ou non exécutable"
+            fi
+            cd ..
         else
-            print_error "Script d'installation du thème Lavanda non trouvé ou non exécutable"
+            print_error "Dossier Lavanda-gtk-theme non trouvé après extraction"
         fi
-        cd ..
     else
-        print_error "Dossier Lavanda-gtk-theme non trouvé après extraction"
+        print_dry_run "Extraction et installation du thème Lavanda"
     fi
 else
     print_warning "Fichier Lavanda-gtk-theme non trouvé - sauté"
@@ -289,9 +630,7 @@ fi
 #==============================================================================
 print_status "Installation des extensions GNOME..."
 
-# Liste des extensions avec leurs IDs sur extensions.gnome.org
-declare -A EXTENSIONS
-EXTENSIONS=(
+declare -A EXTENSIONS=(
     ["blur-my-shell@aunetx"]="3193"
     ["burn-my-windows@schneegans.github.com"]="4679"
     ["clipboard-indicator@tudmotu.com"]="779"
@@ -306,162 +645,184 @@ EXTENSIONS=(
     ["user-theme@gnome-shell-extensions.gcampax.github.com"]="19"
 )
 
-# Fonction pour installer une extension depuis extensions.gnome.org
 install_gnome_extension() {
     local extension_uuid="$1"
     local extension_id="$2"
     
     print_status "Installation de l'extension: $extension_uuid"
+    print_verbose "Extension ID: $extension_id, GNOME version: $GNOME_VERSION"
     
-    # URL de l'extension
+    if [ "$DRY_RUN" = true ]; then
+        print_dry_run "Installation de $extension_uuid (ID: $extension_id)"
+        return 0
+    fi
+    
     local info_url="https://extensions.gnome.org/extension-info/?pk=${extension_id}&shell_version=${GNOME_VERSION}"
-    
-    # Récupération des informations de l'extension
-    local download_url=$(curl -s "$info_url" | grep -o '"download_url":"[^"]*' | cut -d'"' -f4)
+    local download_url=$(curl -s --max-time 10 "$info_url" | grep -o '"download_url":"[^"]*' | cut -d'"' -f4)
     
     if [ -z "$download_url" ]; then
-        print_warning "Impossible de trouver l'URL de téléchargement pour $extension_uuid"
+        print_warning "Impossible de trouver l'URL de téléchargement pour $extension_uuid (peut-être incompatible avec GNOME $GNOME_VERSION)"
         return 1
     fi
     
-    # Téléchargement de l'extension
+    print_verbose "URL de téléchargement: https://extensions.gnome.org${download_url}"
+    
     local extension_file="${extension_uuid}.zip"
-    wget -q "https://extensions.gnome.org${download_url}" -O "$extension_file"
-    
-    if [ ! -f "$extension_file" ]; then
-        print_warning "Échec du téléchargement de $extension_uuid"
-        return 1
-    fi
-    
-    # Installation de l'extension
-    local extension_dir="$HOME/.local/share/gnome-shell/extensions/${extension_uuid}"
-    mkdir -p "$extension_dir"
-    unzip -o -q "$extension_file" -d "$extension_dir"
-    
-    if [ $? -eq 0 ]; then
-        # Compilation des schémas si nécessaire
-        if [ -d "$extension_dir/schemas" ]; then
-            glib-compile-schemas "$extension_dir/schemas/" 2>/dev/null
+    if wget -q --timeout=30 "https://extensions.gnome.org${download_url}" -O "$extension_file"; then
+        local extension_dir="$HOME/.local/share/gnome-shell/extensions/${extension_uuid}"
+        mkdir -p "$extension_dir"
+        
+        if unzip -o -q "$extension_file" -d "$extension_dir"; then
+            if [ -d "$extension_dir/schemas" ]; then
+                glib-compile-schemas "$extension_dir/schemas/" 2>/dev/null
+                print_verbose "Schémas compilés pour $extension_uuid"
+            fi
+            print_success "$extension_uuid installé"
+            rm -f "$extension_file"
+            return 0
+        else
+            print_warning "Échec de l'extraction de $extension_uuid"
+            rm -f "$extension_file"
+            return 1
         fi
-        print_success "$extension_uuid installé"
-        rm -f "$extension_file"
-        return 0
     else
-        print_warning "Échec de l'extraction de $extension_uuid"
-        rm -f "$extension_file"
+        print_warning "Échec du téléchargement de $extension_uuid"
         return 1
     fi
 }
 
-# Installation de chaque extension
+extension_count=0
+extension_success=0
+
 for extension_uuid in "${!EXTENSIONS[@]}"; do
+    ((extension_count++))
     extension_id="${EXTENSIONS[$extension_uuid]}"
-    install_gnome_extension "$extension_uuid" "$extension_id"
+    if install_gnome_extension "$extension_uuid" "$extension_id"; then
+        ((extension_success++))
+    fi
 done
+
+print_status "$extension_success/$extension_count extensions installées avec succès"
 
 # Désactivation des extensions par défaut
-print_status "Désactivation des extensions par défaut..."
-gnome-extensions disable ubuntu-dock@ubuntu.com 2>/dev/null && print_success "ubuntu-dock désactivé" || print_warning "ubuntu-dock non trouvé"
-gnome-extensions disable tiling-assistant@ubuntu.com 2>/dev/null && print_success "tiling-assistant désactivé" || print_warning "tiling-assistant non trouvé"
+if [ "$DRY_RUN" = false ]; then
+    print_status "Désactivation des extensions par défaut..."
+    gnome-extensions disable ubuntu-dock@ubuntu.com 2>/dev/null && print_success "ubuntu-dock désactivé" || print_verbose "ubuntu-dock non trouvé"
+    gnome-extensions disable tiling-assistant@ubuntu.com 2>/dev/null && print_success "tiling-assistant désactivé" || print_verbose "tiling-assistant non trouvé"
+else
+    print_dry_run "Désactivation de ubuntu-dock et tiling-assistant"
+fi
 
 # Activation des nouvelles extensions
-print_status "Activation des nouvelles extensions..."
-for extension_uuid in "${!EXTENSIONS[@]}"; do
-    gnome-extensions enable "$extension_uuid" 2>/dev/null && print_success "$extension_uuid activé" || print_warning "Impossible d'activer $extension_uuid"
-done
+if [ "$DRY_RUN" = false ]; then
+    print_status "Activation des nouvelles extensions..."
+    for extension_uuid in "${!EXTENSIONS[@]}"; do
+        if gnome-extensions enable "$extension_uuid" 2>/dev/null; then
+            print_verbose "$extension_uuid activé"
+        else
+            print_warning "Impossible d'activer $extension_uuid (peut nécessiter un redémarrage)"
+        fi
+    done
+else
+    print_dry_run "Activation des extensions installées"
+fi
 
 #==============================================================================
 # ÉTAPE 10: Configuration de Burn My Windows
 #==============================================================================
 print_status "Configuration de Burn My Windows (effet Hexagone)..."
 
-# Désactivation de tous les effets
-dconf write /org/gnome/shell/extensions/burn-my-windows/apparition-close-effect false 2>/dev/null
-dconf write /org/gnome/shell/extensions/burn-my-windows/broken-glass-close-effect false 2>/dev/null
-dconf write /org/gnome/shell/extensions/burn-my-windows/energize-a-close-effect false 2>/dev/null
-dconf write /org/gnome/shell/extensions/burn-my-windows/energize-b-close-effect false 2>/dev/null
-dconf write /org/gnome/shell/extensions/burn-my-windows/fire-close-effect false 2>/dev/null
-dconf write /org/gnome/shell/extensions/burn-my-windows/glide-close-effect false 2>/dev/null
-dconf write /org/gnome/shell/extensions/burn-my-windows/glitch-close-effect false 2>/dev/null
-dconf write /org/gnome/shell/extensions/burn-my-windows/incinerate-close-effect false 2>/dev/null
-dconf write /org/gnome/shell/extensions/burn-my-windows/matrix-close-effect false 2>/dev/null
-dconf write /org/gnome/shell/extensions/burn-my-windows/paint-brush-close-effect false 2>/dev/null
-dconf write /org/gnome/shell/extensions/burn-my-windows/pixelate-close-effect false 2>/dev/null
-dconf write /org/gnome/shell/extensions/burn-my-windows/pixel-wheel-close-effect false 2>/dev/null
-dconf write /org/gnome/shell/extensions/burn-my-windows/pixel-wipe-close-effect false 2>/dev/null
-dconf write /org/gnome/shell/extensions/burn-my-windows/portal-close-effect false 2>/dev/null
-dconf write /org/gnome/shell/extensions/burn-my-windows/snap-close-effect false 2>/dev/null
-dconf write /org/gnome/shell/extensions/burn-my-windows/t-rex-attack-close-effect false 2>/dev/null
-dconf write /org/gnome/shell/extensions/burn-my-windows/tv-effect-close-effect false 2>/dev/null
-dconf write /org/gnome/shell/extensions/burn-my-windows/tv-glitch-close-effect false 2>/dev/null
-dconf write /org/gnome/shell/extensions/burn-my-windows/wisps-close-effect false 2>/dev/null
-
-# Activation de l'effet Hexagone
-dconf write /org/gnome/shell/extensions/burn-my-windows/hexagon-close-effect true 2>/dev/null
-dconf write /org/gnome/shell/extensions/burn-my-windows/hexagon-animation-time 500 2>/dev/null
-
-check_error "Échec de la configuration de Burn My Windows" "Burn My Windows configuré avec l'effet Hexagone"
+if [ "$DRY_RUN" = false ]; then
+    # Désactivation de tous les effets (simplifié)
+    EFFECTS=(
+        "apparition" "broken-glass" "energize-a" "energize-b" "fire"
+        "glide" "glitch" "incinerate" "matrix" "paint-brush"
+        "pixelate" "pixel-wheel" "pixel-wipe" "portal" "snap"
+        "t-rex-attack" "tv-effect" "tv-glitch" "wisps"
+    )
+    
+    for effect in "${EFFECTS[@]}"; do
+        dconf write "/org/gnome/shell/extensions/burn-my-windows/${effect}-close-effect" false 2>/dev/null
+        print_verbose "Effet $effect désactivé"
+    done
+    
+    # Activation de l'effet Hexagone
+    dconf write /org/gnome/shell/extensions/burn-my-windows/hexagon-close-effect true 2>/dev/null
+    dconf write /org/gnome/shell/extensions/burn-my-windows/hexagon-animation-time 500 2>/dev/null
+    
+    print_success "Burn My Windows configuré avec l'effet Hexagone"
+else
+    print_dry_run "Configuration de Burn My Windows (effet Hexagone)"
+fi
 
 #==============================================================================
-# ÉTAPE 11: Application des thèmes via GNOME Tweaks
+# ÉTAPE 11: Application des thèmes
 #==============================================================================
 print_status "Application des paramètres d'apparence..."
 
-# Polices
-gsettings set org.gnome.desktop.interface font-name 'Comfortaa 11' 2>/dev/null
-gsettings set org.gnome.desktop.interface document-font-name 'JetBrains Mono 11' 2>/dev/null
-gsettings set org.gnome.desktop.interface monospace-font-name 'JetBrains Mono 10' 2>/dev/null
-check_error "Échec de l'application des polices" "Polices appliquées"
-
-# Thème d'icônes
-gsettings set org.gnome.desktop.interface icon-theme 'Uos-fulldistro-icons' 2>/dev/null
-check_error "Échec de l'application du thème d'icônes" "Thème d'icônes appliqué"
-
-# Thème de curseurs (vérifier le nom exact)
-CURSOR_NAME="Bibata-Modern-Ice"
-if [ -d "$HOME/.icons/$CURSOR_NAME" ]; then
-    gsettings set org.gnome.desktop.interface cursor-theme "$CURSOR_NAME" 2>/dev/null
-    check_error "Échec de l'application du thème de curseurs" "Thème de curseurs appliqué"
-else
-    print_warning "Le dossier du curseur $CURSOR_NAME n'existe pas, vérification des alternatives..."
-    # Chercher un nom similaire
-    FOUND_CURSOR=$(ls "$HOME/.icons/" | grep -i bibata | head -n 1)
-    if [ -n "$FOUND_CURSOR" ]; then
-        gsettings set org.gnome.desktop.interface cursor-theme "$FOUND_CURSOR" 2>/dev/null
-        print_success "Thème de curseurs appliqué: $FOUND_CURSOR"
+if [ "$DRY_RUN" = false ]; then
+    # Polices
+    gsettings set org.gnome.desktop.interface font-name 'Comfortaa 11' 2>/dev/null
+    gsettings set org.gnome.desktop.interface document-font-name 'JetBrains Mono 11' 2>/dev/null
+    gsettings set org.gnome.desktop.interface monospace-font-name 'JetBrains Mono 10' 2>/dev/null
+    print_success "Polices appliquées"
+    
+    # Thème d'icônes
+    if gsettings set org.gnome.desktop.interface icon-theme 'Uos-fulldistro-icons' 2>/dev/null; then
+        print_success "Thème d'icônes appliqué"
     else
-        print_error "Aucun curseur Bibata trouvé"
+        print_warning "Impossible d'appliquer le thème d'icônes"
     fi
-fi
-
-# Thème GTK
-THEME_NAME="Lavanda-Sea"
-if [ -d "$HOME/.themes/$THEME_NAME" ] || [ -d "/usr/share/themes/$THEME_NAME" ]; then
-    gsettings set org.gnome.desktop.interface gtk-theme "$THEME_NAME" 2>/dev/null
-    check_error "Échec de l'application du thème GTK" "Thème GTK appliqué"
-else
-    print_warning "Thème $THEME_NAME non trouvé, recherche d'alternatives..."
-    FOUND_THEME=$(ls "$HOME/.themes/" 2>/dev/null | grep -i lavanda | head -n 1)
-    if [ -n "$FOUND_THEME" ]; then
-        gsettings set org.gnome.desktop.interface gtk-theme "$FOUND_THEME" 2>/dev/null
-        print_success "Thème GTK appliqué: $FOUND_THEME"
-        THEME_NAME="$FOUND_THEME"
+    
+    # Curseurs avec détection automatique
+    CURSOR_NAME="Bibata-Modern-Ice"
+    if [ -d "$HOME/.icons/$CURSOR_NAME" ]; then
+        gsettings set org.gnome.desktop.interface cursor-theme "$CURSOR_NAME" 2>/dev/null
+        print_success "Thème de curseurs appliqué: $CURSOR_NAME"
     else
-        print_error "Aucun thème Lavanda trouvé"
+        FOUND_CURSOR=$(ls "$HOME/.icons/" 2>/dev/null | grep -i bibata | head -n 1)
+        if [ -n "$FOUND_CURSOR" ]; then
+            gsettings set org.gnome.desktop.interface cursor-theme "$FOUND_CURSOR" 2>/dev/null
+            print_success "Thème de curseurs appliqué: $FOUND_CURSOR"
+        else
+            print_warning "Aucun curseur Bibata trouvé"
+        fi
     fi
+    
+    # Thème GTK avec détection automatique
+    THEME_NAME="Lavanda-Sea"
+    if [ -d "$HOME/.themes/$THEME_NAME" ] || [ -d "/usr/share/themes/$THEME_NAME" ]; then
+        gsettings set org.gnome.desktop.interface gtk-theme "$THEME_NAME" 2>/dev/null
+        print_success "Thème GTK appliqué: $THEME_NAME"
+    else
+        FOUND_THEME=$(ls "$HOME/.themes/" 2>/dev/null | grep -i lavanda | head -n 1)
+        if [ -n "$FOUND_THEME" ]; then
+            gsettings set org.gnome.desktop.interface gtk-theme "$FOUND_THEME" 2>/dev/null
+            print_success "Thème GTK appliqué: $FOUND_THEME"
+            THEME_NAME="$FOUND_THEME"
+        else
+            print_warning "Aucun thème Lavanda trouvé"
+        fi
+    fi
+    
+    # Thème Shell
+    gsettings set org.gnome.shell.extensions.user-theme name "$THEME_NAME" 2>/dev/null
+    print_success "Thème Shell appliqué: $THEME_NAME"
+else
+    print_dry_run "Application des polices, icônes, curseurs et thèmes"
 fi
-
-# Thème Shell (nécessite l'extension user-theme)
-gsettings set org.gnome.shell.extensions.user-theme name "$THEME_NAME" 2>/dev/null
-check_error "Échec de l'application du thème Shell" "Thème Shell appliqué"
 
 #==============================================================================
 # ÉTAPE 12: Nettoyage
 #==============================================================================
 print_status "Nettoyage des fichiers temporaires..."
-cd "$HOME"
-rm -rf "$HOME/Downloads/gnome-config-temp"
-check_error "Échec du nettoyage" "Nettoyage terminé"
+if [ "$DRY_RUN" = false ]; then
+    cd "$HOME"
+    rm -rf "$HOME/Downloads/gnome-config-temp"
+    print_success "Nettoyage terminé"
+else
+    print_dry_run "rm -rf ~/Downloads/gnome-config-temp"
+fi
 
 #==============================================================================
 # RAPPORT FINAL
@@ -469,33 +830,57 @@ check_error "Échec du nettoyage" "Nettoyage terminé"
 echo ""
 echo -e "${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}║                                                            ║${NC}"
-echo -e "${GREEN}║  ✓ Installation terminée !                                 ║${NC}"
-echo -e "${GREEN}║                                                            ║${NC}"
-if [ $ERRORS -eq 0 ] && [ $WARNINGS -eq 0 ]; then
-    echo -e "${GREEN}║  Aucune erreur détectée                                    ║${NC}"
-elif [ $ERRORS -eq 0 ]; then
-    echo -e "${YELLOW}║  $WARNINGS avertissement(s) détecté(s)                          ║${NC}"
+if [ "$DRY_RUN" = true ]; then
+    echo -e "${MAGENTA}║  ✓ Simulation terminée !                                   ║${NC}"
 else
-    echo -e "${RED}║  $ERRORS erreur(s) et $WARNINGS avertissement(s) détecté(s)            ║${NC}"
+    echo -e "${GREEN}║  ✓ Installation terminée !                                 ║${NC}"
 fi
 echo -e "${GREEN}║                                                            ║${NC}"
-echo -e "${GREEN}║  Veuillez redémarrer votre session GNOME :                 ║${NC}"
+
+if [ $ERRORS -eq 0 ] && [ $WARNINGS -eq 0 ]; then
+    echo -e "${GREEN}║  ✨ Aucune erreur détectée - Installation parfaite !       ║${NC}"
+elif [ $ERRORS -eq 0 ]; then
+    printf "${YELLOW}║  ⚠  %-2d avertissement(s) détecté(s)%27s║${NC}\n" $WARNINGS ""
+else
+    printf "${RED}║  ✗ %-2d erreur(s) et %-2d avertissement(s)%21s║${NC}\n" $ERRORS $WARNINGS ""
+fi
+
 echo -e "${GREEN}║                                                            ║${NC}"
-echo -e "${GREEN}║  1. Déconnectez-vous                                       ║${NC}"
-echo -e "${GREEN}║  2. Reconnectez-vous                                       ║${NC}"
+echo -e "${GREEN}║  📊 Statistiques:                                          ║${NC}"
+printf "${GREEN}║     Extensions installées: %-2d/%-2d%25s║${NC}\n" $extension_success $extension_count ""
 echo -e "${GREEN}║                                                            ║${NC}"
-echo -e "${GREEN}║  Ou utilisez : Alt+F2 → tapez 'r' → Entrée                ║${NC}"
-echo -e "${GREEN}║  (pour redémarrer GNOME Shell en session X11)             ║${NC}"
+echo -e "${GREEN}║  📝 Fichier de log: %-35s║${NC}" "$(basename $LOG_FILE)"
+echo -e "${GREEN}║     Emplacement: ~/.../$(basename $LOG_FILE | cut -c1-30)...║${NC}"
+echo -e "${GREEN}║                                                            ║${NC}"
+
+if [ "$DRY_RUN" = false ]; then
+    echo -e "${GREEN}║  🔄 Pour appliquer les changements:                        ║${NC}"
+    echo -e "${GREEN}║                                                            ║${NC}"
+    echo -e "${GREEN}║  1. Déconnectez-vous                                       ║${NC}"
+    echo -e "${GREEN}║  2. Reconnectez-vous                                       ║${NC}"
+    echo -e "${GREEN}║                                                            ║${NC}"
+    echo -e "${GREEN}║  Ou: Alt+F2 → tapez 'r' → Entrée (X11 uniquement)         ║${NC}"
+fi
+
 echo -e "${GREEN}║                                                            ║${NC}"
 echo -e "${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
-if [ $ERRORS -gt 0 ]; then
-    print_warning "Certaines étapes ont échoué. Vérifiez les messages ci-dessus."
-    print_warning "Vous pouvez installer manuellement les éléments manquants via:"
-    print_warning "  - GNOME Tweaks pour les thèmes"
-    print_warning "  - Gestionnaire d'extensions pour les extensions"
+if [ "$DRY_RUN" = false ]; then
+    if [ $ERRORS -gt 0 ]; then
+        print_warning "Certaines étapes ont échoué. Consultez le log: $LOG_FILE"
+        print_warning "Vous pouvez compléter manuellement via GNOME Tweaks et le Gestionnaire d'extensions"
+    fi
+    
+    # Information sur le backup
+    if [ -f "$HOME/.gnome-config-last-backup" ]; then
+        backup_dir=$(cat "$HOME/.gnome-config-last-backup")
+        echo -e "${CYAN}💾 Backup disponible: $backup_dir${NC}"
+        echo -e "${CYAN}   Pour restaurer: dconf load /org/gnome/desktop/ < $backup_dir/desktop-settings.dconf${NC}"
+        echo ""
+    fi
 fi
 
-echo ""
+log "=== Installation terminée - Erreurs: $ERRORS, Warnings: $WARNINGS ==="
+
 exit 0

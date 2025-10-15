@@ -19,3 +19,11 @@ chat.txt
 # Backups
 *.bak
 install-old.sh.bak
+install-v2.0.sh.bak
+
+# Logs d'installation
+gnome-install-*.log
+
+# Backups de configuration
+.gnome-config-backup-*
+.gnome-config-last-backup
