@@ -407,9 +407,11 @@ restore_defaults() {
             echo "  • ~/.icons/"
             echo "  • ~/.local/share/fonts/"
             echo "  • ~/.local/share/gnome-shell/extensions/"
+            echo "  • ~/.local/share/backgrounds/ (fond d'écran)"
             echo ""
             echo -e "${CYAN}💡 Pour les supprimer manuellement plus tard :${NC}"
             echo -e "${CYAN}   rm -rf ~/.themes/Lavanda* ~/.icons/Uos* ~/.icons/Bibata* ~/.local/share/fonts/{Comfortaa,Poppins}${NC}"
+            echo -e "${CYAN}   rm -f ~/.local/share/backgrounds/enhanced-ubuntu-wallpaper.png${NC}"
         fi
     else
         print_status "Les fichiers personnalisés restent installés (mode non-interactif)"
@@ -1111,11 +1113,22 @@ if [ "$DRY_RUN" = false ]; then
     # Obtenir le chemin absolu du script
     SCRIPT_PATH="$(readlink -f "$0")"
     
+    # Vérifier que le script existe
+    if [ ! -f "$SCRIPT_PATH" ]; then
+        print_error "Impossible de trouver le chemin du script: $SCRIPT_PATH"
+        SCRIPT_PATH="$0"
+    fi
+    
+    log "Extraction du fond d'écran depuis: $SCRIPT_PATH"
+    
     # Décoder le fond d'écran depuis base64 (encodé dans le script)
     # Le fond d'écran est inclus à la fin de ce script après la ligne __WALLPAPER_DATA__
     if sed -n '/^__WALLPAPER_DATA__$/,${p}' "$SCRIPT_PATH" | tail -n +2 | base64 -d > "$WALLPAPER_FILE" 2>/dev/null; then
-        # Vérifier que le fichier a bien été créé et est accessible
-        if [ -f "$WALLPAPER_FILE" ] && [ -r "$WALLPAPER_FILE" ]; then
+        # Vérifier que le fichier a bien été créé ET qu'il n'est pas vide
+        if [ -f "$WALLPAPER_FILE" ] && [ -r "$WALLPAPER_FILE" ] && [ -s "$WALLPAPER_FILE" ]; then
+            file_size=$(stat -f%z "$WALLPAPER_FILE" 2>/dev/null || stat -c%s "$WALLPAPER_FILE" 2>/dev/null)
+            log "Fond d'écran extrait: $file_size octets"
+            
             # Définir les permissions correctes
             chmod 644 "$WALLPAPER_FILE" 2>/dev/null
             
@@ -1128,15 +1141,18 @@ if [ "$DRY_RUN" = false ]; then
             # Vérifier que les paramètres ont été appliqués
             current_wallpaper=$(gsettings get org.gnome.desktop.background picture-uri 2>/dev/null)
             if [ "$current_wallpaper" = "'file://$WALLPAPER_FILE'" ]; then
-                print_success "Fond d'écran personnalisé installé et appliqué: $WALLPAPER_FILE"
+                print_success "Fond d'écran personnalisé installé et appliqué: $WALLPAPER_FILE ($file_size octets)"
             else
                 print_warning "Fond d'écran créé mais non appliqué. Chemin: $WALLPAPER_FILE"
             fi
         else
-            print_warning "Le fichier de fond d'écran a été créé mais n'est pas accessible"
+            print_error "Le fichier de fond d'écran est vide ou inaccessible!"
+            log "Détails: file=$WALLPAPER_FILE, exists=$([ -f "$WALLPAPER_FILE" ] && echo yes || echo no), size=$(stat -c%s "$WALLPAPER_FILE" 2>/dev/null || echo 0)"
+            rm -f "$WALLPAPER_FILE" 2>/dev/null
         fi
     else
-        print_warning "Impossible d'extraire le fond d'écran"
+        print_error "Impossible d'extraire le fond d'écran depuis $SCRIPT_PATH"
+        log "Vérification du marqueur __WALLPAPER_DATA__: $(grep -c '^__WALLPAPER_DATA__$' "$SCRIPT_PATH" 2>/dev/null || echo 0)"
     fi
 else
     print_dry_run "Installation du fond d'écran personnalisé"
