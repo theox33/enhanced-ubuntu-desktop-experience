@@ -988,31 +988,48 @@ install_gnome_extension() {
     print_verbose "URL de téléchargement: https://extensions.gnome.org${download_url}"
 
     local extension_file="${extension_uuid}.zip"
-    if wget -q --timeout=30 "https://extensions.gnome.org${download_url}" -O "$extension_file"; then
+    if wget -q --timeout=30 "https://extensions.gnome.org${download_url}" -O "$extension_file" 2>/dev/null; then
         local extension_dir="$HOME/.local/share/gnome-shell/extensions/${extension_uuid}"
         mkdir -p "$extension_dir"
 
-        if unzip -o -q "$extension_file" -d "$extension_dir"; then
+        if unzip -o -q "$extension_file" -d "$extension_dir" 2>/dev/null; then
+            # Vérifier que metadata.json existe (extension valide)
+            if [ ! -f "$extension_dir/metadata.json" ]; then
+                print_warning "Extension $extension_uuid invalide (metadata.json manquant)"
+                rm -rf "$extension_dir"
+                rm -f "$extension_file"
+                return 1
+            fi
+            
             if [ -d "$extension_dir/schemas" ]; then
-                glib-compile-schemas "$extension_dir/schemas/" 2>/dev/null
-                print_verbose "Schémas compilés pour $extension_uuid"
+                if glib-compile-schemas "$extension_dir/schemas/" 2>/dev/null; then
+                    print_verbose "Schémas compilés pour $extension_uuid"
+                else
+                    print_warning "Échec de compilation des schémas pour $extension_uuid"
+                    rm -rf "$extension_dir"
+                    rm -f "$extension_file"
+                    return 1
+                fi
             fi
             print_success "$extension_uuid installé"
             rm -f "$extension_file"
             return 0
         else
             print_warning "Échec de l'extraction de $extension_uuid"
+            rm -rf "$extension_dir"
             rm -f "$extension_file"
             return 1
         fi
     else
         print_warning "Échec du téléchargement de $extension_uuid"
+        rm -f "$extension_file"
         return 1
     fi
 }
 
 extension_count=0
 extension_success=0
+successfully_installed_extensions=()
 
 for extension_uuid in "${!EXTENSIONS[@]}"; do
     ((extension_count++))
@@ -1020,6 +1037,7 @@ for extension_uuid in "${!EXTENSIONS[@]}"; do
     print_verbose "Installation pour GNOME_VERSION=$GNOME_VERSION"
     if install_gnome_extension "$extension_uuid" "$extension_id"; then
         ((extension_success++))
+        successfully_installed_extensions+=("$extension_uuid")
     fi
 done
 
@@ -1030,79 +1048,57 @@ if [ "$extension_success" -eq 0 ]; then
     print_error "Aucune extension GNOME n'a pu être installée. Vérifiez la compatibilité des extensions avec GNOME $GNOME_VERSION, la connexion internet, ou consultez le log pour le détail des erreurs."
 fi
 
-# Forcer le rechargement de la liste des extensions
+# Configuration des extensions pour activation automatique au prochain démarrage
 if [ "$DRY_RUN" = false ] && [ "$extension_success" -gt 0 ]; then
-    print_status "Rechargement de la liste des extensions..."
-    busctl --user call org.gnome.Shell.Extensions /org/gnome/Shell/Extensions org.gnome.Shell.Extensions.ReloadExtensionsList 2>/dev/null || true
-    sleep 1
-fi
-
-# Désactivation des extensions par défaut
-if [ "$DRY_RUN" = false ]; then
-    print_status "Désactivation des extensions par défaut..."
-    gnome-extensions disable ubuntu-dock@ubuntu.com 2>/dev/null && print_success "ubuntu-dock désactivé" || print_verbose "ubuntu-dock non trouvé"
-    gnome-extensions disable tiling-assistant@ubuntu.com 2>/dev/null && print_success "tiling-assistant désactivé" || print_verbose "tiling-assistant non trouvé"
-else
-    print_dry_run "Désactivation de ubuntu-dock et tiling-assistant"
-fi
-
-# Activation des nouvelles extensions
-if [ "$DRY_RUN" = false ]; then
-    print_status "Activation des nouvelles extensions..."
+    print_status "Configuration des extensions pour activation automatique..."
     
-    activated_count=0
-    failed_extensions=()
+    # Récupérer la liste actuelle des extensions activées
+    current_enabled=$(gsettings get org.gnome.shell enabled-extensions 2>/dev/null | tr -d "[]'" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
     
-    # Méthode 1: Activer chaque extension individuellement avec gnome-extensions enable
-    for extension_uuid in "${!EXTENSIONS[@]}"; do
-        extension_dir="$HOME/.local/share/gnome-shell/extensions/${extension_uuid}"
-        
-        # Vérifier si l'extension est installée
-        if [ ! -d "$extension_dir" ]; then
-            print_verbose "$extension_uuid non installé, activation ignorée"
-            continue
+    # Créer une liste combinée (extensions actuelles + nouvelles extensions installées avec succès)
+    declare -A all_extensions
+    
+    # Ajouter les extensions actuellement activées (sauf celles qu'on veut désactiver)
+    while IFS= read -r ext; do
+        if [ -n "$ext" ] && [[ ! "$ext" =~ ^(ubuntu-dock@ubuntu.com|tiling-assistant@ubuntu.com)$ ]]; then
+            all_extensions["$ext"]=1
         fi
-        
-        # Activer l'extension
-        if gnome-extensions enable "$extension_uuid" 2>/dev/null; then
-            print_verbose "✓ $extension_uuid activé"
-            ((activated_count++))
-        else
-            log "⚠ Échec gnome-extensions enable pour $extension_uuid, tentative via dconf..."
-            failed_extensions+=("$extension_uuid")
-        fi
+    done <<< "$current_enabled"
+    
+    # Ajouter les nouvelles extensions installées avec succès
+    for ext_uuid in "${successfully_installed_extensions[@]}"; do
+        all_extensions["$ext_uuid"]=1
+        print_verbose "Marqué pour activation: $ext_uuid"
     done
     
-    # Méthode 2: Pour les extensions qui ont échoué, forcer via gsettings
-    if [ ${#failed_extensions[@]} -gt 0 ]; then
-        log "Tentative d'activation via gsettings pour ${#failed_extensions[@]} extensions"
-        
-        # Récupérer la liste actuelle
-        current_enabled=$(gsettings get org.gnome.shell enabled-extensions 2>/dev/null)
-        
-        # Ajouter les extensions manquantes
-        for ext_uuid in "${failed_extensions[@]}"; do
-            if [[ ! "$current_enabled" =~ "$ext_uuid" ]]; then
-                # Utiliser dconf directement pour ajouter à la liste
-                dconf write /org/gnome/shell/enabled-extensions "$(dconf read /org/gnome/shell/enabled-extensions | sed "s/]$/, '$ext_uuid']/")" 2>/dev/null
-                log "✓ $ext_uuid ajouté via dconf"
-                ((activated_count++))
-            fi
-        done
+    # Construire la nouvelle liste au format gsettings
+    new_list="["
+    first=true
+    for ext in "${!all_extensions[@]}"; do
+        if [ "$first" = true ]; then
+            new_list+="'$ext'"
+            first=false
+        else
+            new_list+=", '$ext'"
+        fi
+    done
+    new_list+="]"
+    
+    # Appliquer la nouvelle liste
+    if gsettings set org.gnome.shell enabled-extensions "$new_list" 2>/dev/null; then
+        print_success "${#successfully_installed_extensions[@]} extensions configurées pour activation"
+        log "Extensions configurées: $new_list"
+    else
+        print_warning "Impossible de configurer les extensions via gsettings"
+        log "Liste tentée: $new_list"
     fi
     
-    print_success "$activated_count extensions activées"
-    
-    # Méthode 3: Forcer le rechargement complet de GNOME Shell Extensions
-    log "Rechargement de la liste des extensions..."
-    busctl --user call org.gnome.Shell.Extensions /org/gnome/Shell/Extensions org.gnome.Shell.Extensions.ReloadExtensionsList 2>/dev/null || true
-    
-    # Afficher la liste finale
-    final_enabled=$(gsettings get org.gnome.shell enabled-extensions 2>/dev/null)
-    log "Extensions configurées dans gsettings: $final_enabled"
+    # Désactiver explicitement les extensions Ubuntu par défaut
+    print_verbose "Désactivation des extensions Ubuntu par défaut..."
+    gsettings set org.gnome.shell disabled-extensions "['ubuntu-dock@ubuntu.com', 'tiling-assistant@ubuntu.com']" 2>/dev/null || true
     
 else
-    print_dry_run "Activation des extensions installées"
+    print_dry_run "Configuration des extensions pour activation"
 fi
 
 #==============================================================================
@@ -1361,27 +1357,32 @@ if [ "$DRY_RUN" = false ]; then
     if [ "$extension_success" -gt 0 ]; then
         echo ""
         echo -e "${YELLOW}════════════════════════════════════════════════════════════${NC}"
-        echo -e "${YELLOW}⚠️  IMPORTANT: Redémarrage nécessaire pour charger les extensions${NC}"
+        echo -e "${YELLOW}⚠️  IMPORTANT: Redémarrage de session requis${NC}"
         echo -e "${YELLOW}════════════════════════════════════════════════════════════${NC}"
         echo ""
-        echo -e "${CYAN}📦 Extensions installées et activées: $extension_success sur $extension_count${NC}"
+        echo -e "${CYAN}📦 Extensions installées avec succès: $extension_success sur $extension_count${NC}"
         echo ""
         
         if [ "$XDG_SESSION_TYPE" = "x11" ]; then
-            echo -e "${GREEN}Pour charger les extensions sous X11 :${NC}"
-            echo -e "  ${CYAN}1.${NC} Appuyez sur ${BOLD}Alt+F2${NC}"
-            echo -e "  ${CYAN}2.${NC} Tapez ${BOLD}r${NC} puis Entrée (redémarre GNOME Shell)"
-            echo -e "     ${DIM}ou${NC}"
-            echo -e "  ${CYAN}3.${NC} Déconnectez-vous et reconnectez-vous"
+            echo -e "${GREEN}Pour activer les extensions sous X11 :${NC}"
+            echo -e "  ${CYAN}Option 1 (Rapide):${NC}"
+            echo -e "    • Appuyez sur ${BOLD}Alt+F2${NC}"
+            echo -e "    • Tapez ${BOLD}r${NC} puis Entrée"
+            echo ""
+            echo -e "  ${CYAN}Option 2 (Recommandée):${NC}"
+            echo -e "    • Déconnectez-vous"
+            echo -e "    • Reconnectez-vous"
         else
-            echo -e "${GREEN}Pour charger les extensions sous Wayland :${NC}"
+            echo -e "${GREEN}Pour activer les extensions sous Wayland :${NC}"
             echo -e "  ${CYAN}→${NC} ${BOLD}Déconnectez-vous et reconnectez-vous${NC}"
             echo -e "     ${DIM}(Wayland ne permet pas de redémarrer GNOME Shell à chaud)${NC}"
         fi
         
         echo ""
-        echo -e "${DIM}Les extensions sont déjà activées dans la configuration,${NC}"
-        echo -e "${DIM}elles seront chargées automatiquement au prochain démarrage.${NC}"
+        echo -e "${DIM}Les extensions sont configurées et s'activeront au prochain démarrage.${NC}"
+        echo ""
+        echo -e "${CYAN}💡 Après reconnexion, vérifiez avec:${NC}"
+        echo -e "${CYAN}   gnome-extensions list --enabled${NC}"
         echo ""
     fi
 fi
