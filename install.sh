@@ -973,7 +973,30 @@ if [ -f "Uos-fulldistro-icons.zip" ] || [ "$DRY_RUN" = true ]; then
         unzip -o -q Uos-fulldistro-icons.zip 2>/dev/null
         if [ -d "Uos-fulldistro-icons-master" ]; then
             cp -r Uos-fulldistro-icons-master "$HOME/.icons/Uos-fulldistro-icons"
-            check_error "Échec de la copie des icônes" "Icônes Uos-fulldistro installées"
+            if check_error "Échec de la copie des icônes" "Icônes Uos-fulldistro installées"; then
+                # Mise à jour du cache des icônes GTK (CRITIQUE pour le chargement correct)
+                print_status "Mise à jour du cache des icônes..."
+                
+                # Méthode 1: gtk-update-icon-cache (si disponible)
+                if command_exists gtk-update-icon-cache; then
+                    gtk-update-icon-cache -f -t "$HOME/.icons/Uos-fulldistro-icons" 2>/dev/null && \
+                        print_verbose "Cache GTK mis à jour avec gtk-update-icon-cache"
+                fi
+                
+                # Méthode 2: Forcer la modification du dossier (change mtime)
+                # Cela force GTK à recharger les icônes
+                touch "$HOME/.icons/Uos-fulldistro-icons" 2>/dev/null
+                touch "$HOME/.icons/Uos-fulldistro-icons/index.theme" 2>/dev/null
+                print_verbose "Timestamps du thème d'icônes mis à jour"
+                
+                # Méthode 3: Reconstruire l'index si le fichier existe
+                if [ -f "$HOME/.icons/Uos-fulldistro-icons/index.theme" ]; then
+                    # Forcer la relecture en modifiant légèrement le fichier
+                    sed -i 's/$//' "$HOME/.icons/Uos-fulldistro-icons/index.theme" 2>/dev/null
+                fi
+                
+                print_success "Cache des icônes mis à jour"
+            fi
         else
             print_error "Dossier Uos-fulldistro-icons-master non trouvé après extraction"
         fi
@@ -1308,6 +1331,27 @@ fi
 print_status "Application des paramètres d'apparence..."
 
 if [ "$DRY_RUN" = false ]; then
+    # Régénération globale du cache des icônes (IMPORTANT)
+    print_status "Régénération du cache global des icônes..."
+    
+    # Forcer GTK à recharger tous les thèmes d'icônes
+    if command_exists gtk-update-icon-cache; then
+        for icon_dir in "$HOME/.icons"/*/ ; do
+            if [ -f "${icon_dir}index.theme" ]; then
+                gtk-update-icon-cache -f -t "$icon_dir" 2>/dev/null && \
+                    print_verbose "Cache régénéré pour $(basename "$icon_dir")"
+            fi
+        done
+    fi
+    
+    # Forcer la modification du répertoire .icons pour invalider le cache
+    touch "$HOME/.icons" 2>/dev/null
+    
+    # Attendre un instant pour que le système détecte les changements
+    sleep 1
+    
+    print_success "Cache des icônes régénéré"
+    
     # Polices
     gsettings set org.gnome.desktop.interface font-name 'Comfortaa 11' 2>/dev/null
     gsettings set org.gnome.desktop.interface document-font-name 'JetBrains Mono 11' 2>/dev/null
@@ -1317,6 +1361,14 @@ if [ "$DRY_RUN" = false ]; then
     # Thème d'icônes
     if gsettings set org.gnome.desktop.interface icon-theme 'Uos-fulldistro-icons' 2>/dev/null; then
         print_success "Thème d'icônes appliqué"
+        
+        # Forcer un rechargement supplémentaire après application
+        sleep 0.5
+        # Changer vers un autre thème puis revenir (force le rechargement complet)
+        gsettings set org.gnome.desktop.interface icon-theme 'Adwaita' 2>/dev/null
+        sleep 0.5
+        gsettings set org.gnome.desktop.interface icon-theme 'Uos-fulldistro-icons' 2>/dev/null
+        print_verbose "Thème d'icônes rechargé (double application)"
     else
         print_warning "Impossible d'appliquer le thème d'icônes"
     fi
