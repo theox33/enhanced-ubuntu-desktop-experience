@@ -42,6 +42,14 @@
 
 ### 🔧 Améliorations
 
+- **Installation du fond d'écran robuste** 🛡️
+  - Vérification que le script existe avant extraction
+  - Détection automatique du marqueur `__WALLPAPER_DATA__`
+  - Messages d'erreur détaillés si le script est déplacé/corrompu
+  - Fallback intelligent si `readlink -f` échoue
+  - Logging du nombre d'octets extraits pour diagnostic
+  - Suppression automatique des fichiers vides en cas d'échec
+
 - **Redémarrage GNOME Shell amélioré**
   - Méthode busctl en priorité (plus fiable)
   - Fallback sur killall si busctl échoue
@@ -53,6 +61,16 @@
   - Lit le fichier `enabled-extensions.txt` du backup
   - Désactive toutes les extensions actuelles avant restauration
   - Liste des backups disponibles en mode interactif
+
+### 🐛 Corrections de bugs
+
+- **Commande `stat` corrigée**
+  - Utilisation de `stat -c%s` (Linux) au lieu de `stat -f%z` (BSD/macOS)
+  - Compatible avec toutes les distributions Linux
+
+- **Vérification du fichier de fond d'écran**
+  - Ajout du test `-s` pour vérifier que le fichier n'est pas vide (0 octets)
+  - Prévention de l'application d'un fond d'écran corrompu
 
 ### 📝 Documentation
 

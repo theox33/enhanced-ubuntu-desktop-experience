@@ -41,6 +41,9 @@ chmod +x install.sh
 ./install.sh
 ```
 
+⚠️ **IMPORTANT** : Exécutez toujours le script depuis son dossier d'origine avec `./install.sh`  
+Le script contient un fond d'écran encodé et doit pouvoir se lire lui-même pour l'extraire.
+
 Un menu interactif s'affichera avec 5 options :
 1. **Installer** - Configuration complète
 2. **Restaurer défauts** - Revenir à Ubuntu vanilla
@@ -98,11 +101,32 @@ Un menu interactif s'affichera avec 5 options :
 
 ## 🐛 Problèmes courants
 
+### Fond d'écran non installé
+```
+[✗] Impossible de trouver le chemin du script: /quelque/part/install.sh
+[✗] Le fichier de fond d'écran est vide ou n'a pas pu être créé!
+```
+
+**Cause** : Le script a été déplacé ou copié sans les données base64.  
+**Solution** :
+```bash
+# Toujours lancer depuis le dossier du script
+cd /chemin/vers/enhanced-ubuntu-desktop-experience
+./install.sh
+
+# OU si vous copiez le script, copiez-le ENTIÈREMENT (3.3 MB)
+cp install.sh /destination/  # Copie complète avec données base64
+cd /destination/
+./install.sh
+```
+
 ### Extensions non activées
 ```bash
 gnome-extensions list --enabled  # Vérifier les extensions actives
 ./install.sh --install           # Réinstaller
 ```
+
+**Note** : Sous Wayland, les extensions nécessitent une déconnexion/reconnexion pour s'activer.
 
 ### Thème non appliqué
 ```bash

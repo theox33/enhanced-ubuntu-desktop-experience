@@ -127,9 +127,57 @@ gsettings get org.gnome.desktop.background picture-uri
 
 ## Dépannage
 
+### Erreur : "Impossible de trouver le chemin du script"
+```
+[✗] Impossible de trouver le chemin du script: /quelque/part/install.sh
+[✗] Le fichier de fond d'écran est vide ou n'a pas pu être créé!
+```
+
+**Problème** : Le script a été déplacé, copié partiellement, ou exécuté depuis un mauvais répertoire.
+
+**Solutions** :
+
+1. **Toujours exécuter depuis le dossier du script** :
+   ```bash
+   cd /chemin/vers/enhanced-ubuntu-desktop-experience
+   ./install.sh
+   ```
+
+2. **Si vous copiez le script, copiez-le ENTIÈREMENT** :
+   ```bash
+   # Le script fait 3.3 MB (pas 50 KB !)
+   cp install.sh /destination/
+   cd /destination/
+   ./install.sh
+   ```
+
+3. **Vérifier que le script contient les données** :
+   ```bash
+   grep -c '^__WALLPAPER_DATA__$' install.sh
+   # Devrait retourner : 1
+   
+   tail -c 100 install.sh
+   # Devrait afficher du base64, pas du code bash
+   ```
+
 ### Le fichier fait 0 octets
-**Problème** : Le chemin du script n'est pas résolu correctement.  
-**Solution** : Le script utilise maintenant `readlink -f "$0"` pour obtenir le chemin absolu.
+**Problème** : Le chemin du script n'est pas résolu correctement ou les données base64 sont manquantes.
+
+**Diagnostic** :
+```bash
+# Vérifier la taille du script
+ls -lh install.sh
+# Devrait être ~3.3 MB, pas ~50 KB
+
+# Tester l'extraction manuellement
+cd /chemin/vers/enhanced-ubuntu-desktop-experience
+SCRIPT_PATH="$(readlink -f ./install.sh)"
+sed -n '/^__WALLPAPER_DATA__$/,${p}' "$SCRIPT_PATH" | tail -n +2 | base64 -d > test.png
+ls -lh test.png
+# Devrait être 2.5 MB
+```
+
+**Solution** : Réinstaller le script complet depuis le dépôt Git.
 
 ### Le fond d'écran n'est pas appliqué
 **Vérification** :
@@ -144,4 +192,18 @@ gsettings set org.gnome.desktop.background picture-uri "file://$HOME/.local/shar
 ### Le fichier a disparu
 **Cause** : L'utilisateur a choisi de supprimer tous les fichiers lors de la restauration des défauts.  
 **Solution** : Réexécuter `./install.sh --install` pour recréer le fichier.
+
+### Marqueur __WALLPAPER_DATA__ non trouvé
+**Problème** : Le script est incomplet ou corrompu.
+
+**Diagnostic** :
+```bash
+wc -l install.sh
+# Devrait retourner ~1300+ lignes
+
+tail -20 install.sh
+# Devrait contenir __WALLPAPER_DATA__ suivi de base64
+```
+
+**Solution** : Re-télécharger le script complet depuis GitHub.
 

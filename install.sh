@@ -1113,48 +1113,71 @@ if [ "$DRY_RUN" = false ]; then
     # Obtenir le chemin absolu du script
     SCRIPT_PATH="$(readlink -f "$0")"
     
-    # Vérifier que le script existe
+    # Vérifier que le script existe à l'endroit résolu
     if [ ! -f "$SCRIPT_PATH" ]; then
-        print_error "Impossible de trouver le chemin du script: $SCRIPT_PATH"
-        SCRIPT_PATH="$0"
+        print_error "Le script n'existe pas à l'emplacement résolu: $SCRIPT_PATH"
+        print_error "Le script a peut-être été déplacé ou supprimé pendant l'exécution."
+        print_error "Lancez le script depuis son dossier d'origine: cd /chemin/vers/script && ./install.sh"
+        log "Tentative avec \$0=$0"
+        
+        # Essayer avec $0 directement
+        if [ -f "$0" ]; then
+            SCRIPT_PATH="$0"
+            log "Utilisation de \$0 comme chemin du script"
+        else
+            print_error "Impossible de localiser le script. Installation du fond d'écran ignorée."
+            ERRORS=$((ERRORS + 1))
+            SCRIPT_PATH=""
+        fi
     fi
     
-    log "Extraction du fond d'écran depuis: $SCRIPT_PATH"
-    
-    # Décoder le fond d'écran depuis base64 (encodé dans le script)
-    # Le fond d'écran est inclus à la fin de ce script après la ligne __WALLPAPER_DATA__
-    sed -n '/^__WALLPAPER_DATA__$/,${p}' "$SCRIPT_PATH" | tail -n +2 | base64 -d > "$WALLPAPER_FILE" 2>/dev/null
-    
-    # Vérifier que le fichier a bien été créé ET qu'il n'est pas vide
-    if [ -f "$WALLPAPER_FILE" ] && [ -s "$WALLPAPER_FILE" ]; then
-        file_size=$(stat -c%s "$WALLPAPER_FILE" 2>/dev/null || echo "inconnu")
-        log "Fond d'écran extrait: $file_size octets"
+    # Procéder à l'extraction seulement si le script est accessible
+    if [ -n "$SCRIPT_PATH" ] && [ -f "$SCRIPT_PATH" ]; then
+        log "Extraction du fond d'écran depuis: $SCRIPT_PATH"
         
-        # Définir les permissions correctes
-        chmod 644 "$WALLPAPER_FILE" 2>/dev/null
-        
-        # Appliquer le fond d'écran
-        gsettings set org.gnome.desktop.background picture-uri "file://$WALLPAPER_FILE" 2>/dev/null
-        # Essayer d'appliquer pour le mode sombre (peut ne pas exister sur toutes les versions de GNOME)
-        gsettings set org.gnome.desktop.background picture-uri-dark "file://$WALLPAPER_FILE" 2>/dev/null || true
-        gsettings set org.gnome.desktop.background picture-options 'zoom' 2>/dev/null
-        
-        # Vérifier que les paramètres ont été appliqués
-        current_wallpaper=$(gsettings get org.gnome.desktop.background picture-uri 2>/dev/null)
-        if [ "$current_wallpaper" = "'file://$WALLPAPER_FILE'" ]; then
-            print_success "Fond d'écran personnalisé installé et appliqué: $WALLPAPER_FILE ($file_size octets)"
+        # Vérifier que le marqueur __WALLPAPER_DATA__ existe
+        if ! grep -q '^__WALLPAPER_DATA__$' "$SCRIPT_PATH" 2>/dev/null; then
+            print_error "Marqueur __WALLPAPER_DATA__ non trouvé dans $SCRIPT_PATH"
+            print_error "Le script semble incomplet ou corrompu."
+            ERRORS=$((ERRORS + 1))
         else
-            print_warning "Fond d'écran créé ($file_size octets) mais non appliqué. Chemin: $WALLPAPER_FILE"
-            log "current_wallpaper=$current_wallpaper, expected='file://$WALLPAPER_FILE'"
+            # Décoder le fond d'écran depuis base64 (encodé dans le script)
+            # Le fond d'écran est inclus à la fin de ce script après la ligne __WALLPAPER_DATA__
+            sed -n '/^__WALLPAPER_DATA__$/,${p}' "$SCRIPT_PATH" | tail -n +2 | base64 -d > "$WALLPAPER_FILE" 2>/dev/null
+            
+            # Vérifier que le fichier a bien été créé ET qu'il n'est pas vide
+            if [ -f "$WALLPAPER_FILE" ] && [ -s "$WALLPAPER_FILE" ]; then
+                file_size=$(stat -c%s "$WALLPAPER_FILE" 2>/dev/null || echo "inconnu")
+                log "Fond d'écran extrait: $file_size octets"
+                
+                # Définir les permissions correctes
+                chmod 644 "$WALLPAPER_FILE" 2>/dev/null
+                
+                # Appliquer le fond d'écran
+                gsettings set org.gnome.desktop.background picture-uri "file://$WALLPAPER_FILE" 2>/dev/null
+                # Essayer d'appliquer pour le mode sombre (peut ne pas exister sur toutes les versions de GNOME)
+                gsettings set org.gnome.desktop.background picture-uri-dark "file://$WALLPAPER_FILE" 2>/dev/null || true
+                gsettings set org.gnome.desktop.background picture-options 'zoom' 2>/dev/null
+                
+                # Vérifier que les paramètres ont été appliqués
+                current_wallpaper=$(gsettings get org.gnome.desktop.background picture-uri 2>/dev/null)
+                if [ "$current_wallpaper" = "'file://$WALLPAPER_FILE'" ]; then
+                    print_success "Fond d'écran personnalisé installé et appliqué: $WALLPAPER_FILE ($file_size octets)"
+                else
+                    print_warning "Fond d'écran créé ($file_size octets) mais non appliqué. Chemin: $WALLPAPER_FILE"
+                    log "current_wallpaper=$current_wallpaper, expected='file://$WALLPAPER_FILE'"
+                fi
+            else
+                print_error "Le fichier de fond d'écran est vide ou n'a pas pu être créé!"
+                if [ -f "$WALLPAPER_FILE" ]; then
+                    file_size=$(stat -c%s "$WALLPAPER_FILE" 2>/dev/null || echo "0")
+                    log "Détails: file=$WALLPAPER_FILE, size=$file_size octets"
+                    rm -f "$WALLPAPER_FILE" 2>/dev/null
+                fi
+                log "Données extraites: $(sed -n '/^__WALLPAPER_DATA__$/,${p}' "$SCRIPT_PATH" | tail -n +2 | wc -c 2>/dev/null || echo 0) octets"
+                ERRORS=$((ERRORS + 1))
+            fi
         fi
-    else
-        print_error "Le fichier de fond d'écran est vide ou n'a pas pu être créé!"
-        if [ -f "$WALLPAPER_FILE" ]; then
-            file_size=$(stat -c%s "$WALLPAPER_FILE" 2>/dev/null || echo "0")
-            log "Détails: file=$WALLPAPER_FILE, size=$file_size octets"
-            rm -f "$WALLPAPER_FILE" 2>/dev/null
-        fi
-        log "Vérification du marqueur __WALLPAPER_DATA__ dans $SCRIPT_PATH: $(grep -c '^__WALLPAPER_DATA__$' "$SCRIPT_PATH" 2>/dev/null || echo 0)"
     fi
 else
     print_dry_run "Installation du fond d'écran personnalisé"
