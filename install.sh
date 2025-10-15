@@ -1029,15 +1029,33 @@ if [ "$DRY_RUN" = false ]; then
     # Nom du fichier de fond d'écran
     WALLPAPER_FILE="$WALLPAPER_DIR/enhanced-ubuntu-wallpaper.png"
     
+    # Obtenir le chemin absolu du script
+    SCRIPT_PATH="$(readlink -f "$0")"
+    
     # Décoder le fond d'écran depuis base64 (encodé dans le script)
     # Le fond d'écran est inclus à la fin de ce script après la ligne __WALLPAPER_DATA__
-    if sed -n '/^__WALLPAPER_DATA__$/,${p}' "$0" | tail -n +2 | base64 -d > "$WALLPAPER_FILE" 2>/dev/null; then
-        # Appliquer le fond d'écran
-        gsettings set org.gnome.desktop.background picture-uri "file://$WALLPAPER_FILE" 2>/dev/null
-        gsettings set org.gnome.desktop.background picture-uri-dark "file://$WALLPAPER_FILE" 2>/dev/null
-        gsettings set org.gnome.desktop.background picture-options 'zoom' 2>/dev/null
-        
-        print_success "Fond d'écran personnalisé installé: $WALLPAPER_FILE"
+    if sed -n '/^__WALLPAPER_DATA__$/,${p}' "$SCRIPT_PATH" | tail -n +2 | base64 -d > "$WALLPAPER_FILE" 2>/dev/null; then
+        # Vérifier que le fichier a bien été créé et est accessible
+        if [ -f "$WALLPAPER_FILE" ] && [ -r "$WALLPAPER_FILE" ]; then
+            # Définir les permissions correctes
+            chmod 644 "$WALLPAPER_FILE" 2>/dev/null
+            
+            # Appliquer le fond d'écran
+            gsettings set org.gnome.desktop.background picture-uri "file://$WALLPAPER_FILE" 2>/dev/null
+            # Essayer d'appliquer pour le mode sombre (peut ne pas exister sur toutes les versions de GNOME)
+            gsettings set org.gnome.desktop.background picture-uri-dark "file://$WALLPAPER_FILE" 2>/dev/null || true
+            gsettings set org.gnome.desktop.background picture-options 'zoom' 2>/dev/null
+            
+            # Vérifier que les paramètres ont été appliqués
+            current_wallpaper=$(gsettings get org.gnome.desktop.background picture-uri 2>/dev/null)
+            if [ "$current_wallpaper" = "'file://$WALLPAPER_FILE'" ]; then
+                print_success "Fond d'écran personnalisé installé et appliqué: $WALLPAPER_FILE"
+            else
+                print_warning "Fond d'écran créé mais non appliqué. Chemin: $WALLPAPER_FILE"
+            fi
+        else
+            print_warning "Le fichier de fond d'écran a été créé mais n'est pas accessible"
+        fi
     else
         print_warning "Impossible d'extraire le fond d'écran"
     fi
