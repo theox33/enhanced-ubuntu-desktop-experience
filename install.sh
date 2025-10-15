@@ -1030,46 +1030,11 @@ if [ "$extension_success" -eq 0 ]; then
     print_error "Aucune extension GNOME n'a pu être installée. Vérifiez la compatibilité des extensions avec GNOME $GNOME_VERSION, la connexion internet, ou consultez le log pour le détail des erreurs."
 fi
 
-# Redémarrer GNOME Shell pour détecter les nouvelles extensions
+# Forcer le rechargement de la liste des extensions
 if [ "$DRY_RUN" = false ] && [ "$extension_success" -gt 0 ]; then
-    print_status "Rechargement de GNOME Shell pour détecter les nouvelles extensions..."
-    
-    # Forcer le rechargement de la liste des extensions
+    print_status "Rechargement de la liste des extensions..."
     busctl --user call org.gnome.Shell.Extensions /org/gnome/Shell/Extensions org.gnome.Shell.Extensions.ReloadExtensionsList 2>/dev/null || true
-    
-    # Détection du serveur d'affichage
-    if [ "$XDG_SESSION_TYPE" = "x11" ]; then
-        # Sous X11, on peut redémarrer GNOME Shell directement
-        print_status "Redémarrage de GNOME Shell (X11)..."
-        if busctl --user call org.gnome.Shell /org/gnome/Shell org.gnome.Shell Eval s 'Meta.restart("Rechargement des extensions...")' 2>/dev/null; then
-            print_success "GNOME Shell redémarré"
-            sleep 3  # Attendre que GNOME Shell redémarre complètement
-        else
-            print_warning "Impossible de redémarrer GNOME Shell automatiquement"
-            print_status "Redémarrage manuel: Alt+F2 → tapez 'r' → Entrée"
-            if [ "$INTERACTIVE" = true ]; then
-                echo -n "Appuyez sur Entrée après avoir redémarré GNOME Shell..."
-                read
-            fi
-        fi
-    else
-        # Sous Wayland, on ne peut pas redémarrer GNOME Shell sans se déconnecter
-        print_warning "Session Wayland détectée - impossible de redémarrer GNOME Shell automatiquement"
-        print_status "Pour activer les extensions:"
-        print_status "  1. Déconnectez-vous (ou appuyez sur Ctrl+C et relancez ce script après déconnexion)"
-        print_status "  2. Reconnectez-vous"
-        print_status "  3. Les extensions seront alors activées automatiquement"
-        
-        if [ "$INTERACTIVE" = true ]; then
-            echo ""
-            if ask_confirmation "Voulez-vous continuer sans activer les extensions maintenant? (nécessitera une déconnexion)" "y"; then
-                print_status "Les extensions seront activées lors de la prochaine connexion"
-            else
-                print_status "Installation interrompue. Relancez le script après vous être déconnecté."
-                exit 0
-            fi
-        fi
-    fi
+    sleep 1
 fi
 
 # Désactivation des extensions par défaut
@@ -1085,39 +1050,63 @@ fi
 if [ "$DRY_RUN" = false ]; then
     print_status "Activation des nouvelles extensions..."
     
-    # Attendre un peu pour que GNOME Shell détecte les nouvelles extensions
-    sleep 2
+    # Récupérer la liste actuelle des extensions activées
+    current_enabled=$(gsettings get org.gnome.shell enabled-extensions 2>/dev/null)
+    log "Extensions actuellement activées: $current_enabled"
     
-    activated_count=0
-    failed_extensions=()
-    
+    # Créer la liste des extensions à activer
+    extensions_to_enable=()
     for extension_uuid in "${!EXTENSIONS[@]}"; do
         extension_dir="$HOME/.local/share/gnome-shell/extensions/${extension_uuid}"
         
         # Vérifier si l'extension est installée
-        if [ ! -d "$extension_dir" ]; then
-            print_verbose "$extension_uuid non installé, activation ignorée"
-            continue
-        fi
-        
-        # Essayer d'activer l'extension
-        if gnome-extensions enable "$extension_uuid" 2>/dev/null; then
-            print_verbose "✓ $extension_uuid activé"
-            ((activated_count++))
-        else
-            print_warning "✗ Impossible d'activer $extension_uuid"
-            failed_extensions+=("$extension_uuid")
+        if [ -d "$extension_dir" ]; then
+            extensions_to_enable+=("'$extension_uuid'")
         fi
     done
     
-    print_success "$activated_count extensions activées"
-    
-    if [ ${#failed_extensions[@]} -gt 0 ]; then
-        print_warning "Extensions non activées (nécessitent un redémarrage): ${failed_extensions[*]}"
+    if [ ${#extensions_to_enable[@]} -gt 0 ]; then
+        # Construire la nouvelle liste (combinaison des extensions existantes + nouvelles)
+        # On commence avec une liste vide et on ajoute toutes nos extensions
+        new_list="[${extensions_to_enable[*]}]"
+        new_list="${new_list// /, }"  # Remplacer les espaces par des virgules
+        
+        log "Nouvelle liste d'extensions: $new_list"
+        
+        # Appliquer via gsettings (plus fiable que gnome-extensions enable)
+        if gsettings set org.gnome.shell enabled-extensions "$new_list" 2>/dev/null; then
+            print_success "${#extensions_to_enable[@]} extensions activées via gsettings"
+            
+            # Vérifier que les paramètres ont été appliqués
+            sleep 1
+            applied=$(gsettings get org.gnome.shell enabled-extensions 2>/dev/null)
+            log "Extensions activées (vérification): $applied"
+            
+            # Forcer un dernier rechargement
+            busctl --user call org.gnome.Shell.Extensions /org/gnome/Shell/Extensions org.gnome.Shell.Extensions.ReloadExtensionsList 2>/dev/null || true
+        else
+            print_error "Échec de l'activation via gsettings"
+            
+            # Fallback: activer une par une avec gnome-extensions
+            print_status "Tentative d'activation individuelle..."
+            activated_count=0
+            for extension_uuid in "${!EXTENSIONS[@]}"; do
+                extension_dir="$HOME/.local/share/gnome-shell/extensions/${extension_uuid}"
+                
+                if [ -d "$extension_dir" ]; then
+                    if gnome-extensions enable "$extension_uuid" 2>/dev/null; then
+                        print_verbose "✓ $extension_uuid activé"
+                        ((activated_count++))
+                    else
+                        print_verbose "✗ Échec: $extension_uuid"
+                    fi
+                fi
+            done
+            print_success "$activated_count extensions activées (fallback)"
+        fi
+    else
+        print_warning "Aucune extension à activer"
     fi
-    
-    # Forcer le rechargement de la liste des extensions
-    busctl --user call org.gnome.Shell.Extensions /org/gnome/Shell/Extensions org.gnome.Shell.Extensions.ReloadExtensionsList 2>/dev/null || true
     
 else
     print_dry_run "Activation des extensions installées"
@@ -1375,11 +1364,32 @@ if [ "$DRY_RUN" = false ]; then
         echo ""
     fi
     
-    # Rappel final pour Wayland
-    if [ "$extension_success" -gt 0 ] && [ "$XDG_SESSION_TYPE" != "x11" ]; then
+    # Instructions finales pour activer les extensions
+    if [ "$extension_success" -gt 0 ]; then
         echo ""
-        echo -e "${YELLOW}⚠️  RAPPEL: Sous Wayland, les extensions ne seront actives qu'après déconnexion/reconnexion${NC}"
-        echo -e "${CYAN}   Extensions installées: $extension_success sur $extension_count${NC}"
+        echo -e "${YELLOW}════════════════════════════════════════════════════════════${NC}"
+        echo -e "${YELLOW}⚠️  IMPORTANT: Redémarrage nécessaire pour charger les extensions${NC}"
+        echo -e "${YELLOW}════════════════════════════════════════════════════════════${NC}"
+        echo ""
+        echo -e "${CYAN}📦 Extensions installées et activées: $extension_success sur $extension_count${NC}"
+        echo ""
+        
+        if [ "$XDG_SESSION_TYPE" = "x11" ]; then
+            echo -e "${GREEN}Pour charger les extensions sous X11 :${NC}"
+            echo -e "  ${CYAN}1.${NC} Appuyez sur ${BOLD}Alt+F2${NC}"
+            echo -e "  ${CYAN}2.${NC} Tapez ${BOLD}r${NC} puis Entrée (redémarre GNOME Shell)"
+            echo -e "     ${DIM}ou${NC}"
+            echo -e "  ${CYAN}3.${NC} Déconnectez-vous et reconnectez-vous"
+        else
+            echo -e "${GREEN}Pour charger les extensions sous Wayland :${NC}"
+            echo -e "  ${CYAN}→${NC} ${BOLD}Déconnectez-vous et reconnectez-vous${NC}"
+            echo -e "     ${DIM}(Wayland ne permet pas de redémarrer GNOME Shell à chaud)${NC}"
+        fi
+        
+        echo ""
+        echo -e "${DIM}Les extensions sont déjà activées dans la configuration,${NC}"
+        echo -e "${DIM}elles seront chargées automatiquement au prochain démarrage.${NC}"
+        echo ""
     fi
 fi
 
