@@ -771,7 +771,7 @@ print_status "Téléchargement des ressources (peut prendre quelques minutes)...
 declare -A DOWNLOADS=(
     ["comfortaa.zip"]="https://dl.dafont.com/dl/?f=comfortaa"
     ["JetBrainsMono.zip"]="https://download.jetbrains.com/fonts/JetBrainsMono-2.304.zip"
-    ["Bibata-Modern-Ice.tar.xz"]="https://github.com/ful1e5/Bibata_Cursor/releases/download/v2.0.7/Bibata-Modern-Ice-Right.tar.xz"
+    ["Bibata-Modern-Ice.tar.xz"]="https://github.com/ful1e5/Bibata_Cursor/releases/download/v2.0.7/Bibata-Modern-Ice.tar.xz"
     ["Uos-fulldistro-icons.zip"]="https://github.com/zayronxio/Uos-fulldistro-icons/archive/refs/heads/master.zip"
     ["Lavanda-gtk-theme.tar.gz"]="https://github.com/vinceliuice/Lavanda-gtk-theme/archive/refs/tags/2024-04-28.tar.gz"
 )
