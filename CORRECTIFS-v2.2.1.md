@@ -2,7 +2,7 @@
 
 ## 🐛 Problèmes résolus
 
-### 1. Erreur "Impossible de trouver le chemin du script"
+### 1. Erreur "Impossible de trouver le chemin du script" 🌍
 
 **Symptôme** :
 ```
@@ -11,17 +11,28 @@ sed: impossible de lire ./install.sh: Aucun fichier ou dossier de ce nom
 [✗] Le fichier de fond d'écran est vide ou n'a pas pu être créé!
 ```
 
-**Cause** :
-- Le script était exécuté depuis un répertoire temporaire
-- Le script avait été déplacé ou copié sans les données base64
-- `readlink -f "$0"` retournait un chemin invalide
+**Cause PRINCIPALE** : ⚠️
+- Le script utilisait `~/Downloads/gnome-config-temp` en dur
+- **Problème de localisation** : Ce dossier s'appelle différemment selon la langue du système :
+  - 🇫🇷 Français : `~/Téléchargements/`
+  - 🇬🇧 Anglais : `~/Downloads/`
+  - 🇪🇸 Espagnol : `~/Descargas/`
+  - 🇩🇪 Allemand : `~/Downloads/`
+- Le dossier peut même ne pas exister du tout !
+- Le script `cd` vers un dossier inexistant, donc `$0` pointait vers le mauvais endroit
 
-**Solution appliquée** :
-- ✅ Vérification que le chemin résolu existe réellement
-- ✅ Fallback sur `$0` si `readlink -f` échoue
-- ✅ Messages d'erreur explicites avec instructions
-- ✅ Vérification de la présence du marqueur `__WALLPAPER_DATA__`
-- ✅ Logging détaillé pour le diagnostic
+**Solution appliquée** : ✅
+- **Remplacement de `~/Downloads/` par `/tmp/`**
+  ```bash
+  TEMP_DIR="/tmp/gnome-config-temp-$$"  # $$ = PID du processus
+  ```
+- `/tmp` existe **toujours** sur tous les systèmes Linux
+- Ajout du PID pour éviter les conflits entre plusieurs exécutions simultanées
+- Compatible avec **toutes les langues** et **toutes les configurations**
+- Vérification que le chemin résolu existe réellement
+- Système de fallback robuste : `$0` → `BASH_SOURCE` → `$PWD/install.sh` → `./install.sh`
+- Messages d'erreur explicites avec instructions
+- Logging détaillé pour le diagnostic
 
 ### 2. Fichier de fond d'écran vide (0 octets)
 

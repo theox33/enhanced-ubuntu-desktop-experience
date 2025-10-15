@@ -728,12 +728,15 @@ fi
 #==============================================================================
 print_status "Création des dossiers pour les ressources..."
 
+# Dossier temporaire pour les téléchargements (dans /tmp pour éviter les problèmes de localisation)
+TEMP_DIR="/tmp/gnome-config-temp-$$"
+
 DIRS=(
     "$HOME/.icons"
     "$HOME/.themes"
     "$HOME/.local/share/fonts"
     "$HOME/.local/share/gnome-shell/extensions"
-    "$HOME/Downloads/gnome-config-temp"
+    "$TEMP_DIR"
 )
 
 for dir in "${DIRS[@]}"; do
@@ -748,7 +751,8 @@ done
 print_success "Dossiers créés"
 
 if [ "$DRY_RUN" = false ]; then
-    cd "$HOME/Downloads/gnome-config-temp"
+    cd "$TEMP_DIR"
+    log "Dossier temporaire: $TEMP_DIR"
 fi
 
 #==============================================================================
@@ -1274,10 +1278,13 @@ fi
 print_status "Nettoyage des fichiers temporaires..."
 if [ "$DRY_RUN" = false ]; then
     cd "$HOME"
-    rm -rf "$HOME/Downloads/gnome-config-temp"
+    if [ -d "$TEMP_DIR" ]; then
+        rm -rf "$TEMP_DIR"
+        log "Dossier temporaire supprimé: $TEMP_DIR"
+    fi
     print_success "Nettoyage terminé"
 else
-    print_dry_run "rm -rf ~/Downloads/gnome-config-temp"
+    print_dry_run "rm -rf $TEMP_DIR"
 fi
 
 #==============================================================================

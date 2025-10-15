@@ -64,6 +64,13 @@
 
 ### 🐛 Corrections de bugs
 
+- **Dossier temporaire universel** 🌍
+  - Remplacement de `~/Downloads/gnome-config-temp` par `/tmp/gnome-config-temp-$$`
+  - Compatible avec toutes les langues (Downloads, Téléchargements, Descargas, etc.)
+  - Utilisation de `/tmp` qui existe toujours sur tous les systèmes
+  - Ajout du PID (`$$`) pour éviter les conflits entre plusieurs exécutions
+  - **Corrige le bug** : "Le script n'existe pas à l'emplacement résolu"
+
 - **Commande `stat` corrigée**
   - Utilisation de `stat -c%s` (Linux) au lieu de `stat -f%z` (BSD/macOS)
   - Compatible avec toutes les distributions Linux
