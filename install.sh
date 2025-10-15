@@ -1050,63 +1050,56 @@ fi
 if [ "$DRY_RUN" = false ]; then
     print_status "Activation des nouvelles extensions..."
     
-    # Récupérer la liste actuelle des extensions activées
-    current_enabled=$(gsettings get org.gnome.shell enabled-extensions 2>/dev/null)
-    log "Extensions actuellement activées: $current_enabled"
+    activated_count=0
+    failed_extensions=()
     
-    # Créer la liste des extensions à activer
-    extensions_to_enable=()
+    # Méthode 1: Activer chaque extension individuellement avec gnome-extensions enable
     for extension_uuid in "${!EXTENSIONS[@]}"; do
         extension_dir="$HOME/.local/share/gnome-shell/extensions/${extension_uuid}"
         
         # Vérifier si l'extension est installée
-        if [ -d "$extension_dir" ]; then
-            extensions_to_enable+=("'$extension_uuid'")
+        if [ ! -d "$extension_dir" ]; then
+            print_verbose "$extension_uuid non installé, activation ignorée"
+            continue
+        fi
+        
+        # Activer l'extension
+        if gnome-extensions enable "$extension_uuid" 2>/dev/null; then
+            print_verbose "✓ $extension_uuid activé"
+            ((activated_count++))
+        else
+            log "⚠ Échec gnome-extensions enable pour $extension_uuid, tentative via dconf..."
+            failed_extensions+=("$extension_uuid")
         fi
     done
     
-    if [ ${#extensions_to_enable[@]} -gt 0 ]; then
-        # Construire la nouvelle liste (combinaison des extensions existantes + nouvelles)
-        # On commence avec une liste vide et on ajoute toutes nos extensions
-        new_list="[${extensions_to_enable[*]}]"
-        new_list="${new_list// /, }"  # Remplacer les espaces par des virgules
+    # Méthode 2: Pour les extensions qui ont échoué, forcer via gsettings
+    if [ ${#failed_extensions[@]} -gt 0 ]; then
+        log "Tentative d'activation via gsettings pour ${#failed_extensions[@]} extensions"
         
-        log "Nouvelle liste d'extensions: $new_list"
+        # Récupérer la liste actuelle
+        current_enabled=$(gsettings get org.gnome.shell enabled-extensions 2>/dev/null)
         
-        # Appliquer via gsettings (plus fiable que gnome-extensions enable)
-        if gsettings set org.gnome.shell enabled-extensions "$new_list" 2>/dev/null; then
-            print_success "${#extensions_to_enable[@]} extensions activées via gsettings"
-            
-            # Vérifier que les paramètres ont été appliqués
-            sleep 1
-            applied=$(gsettings get org.gnome.shell enabled-extensions 2>/dev/null)
-            log "Extensions activées (vérification): $applied"
-            
-            # Forcer un dernier rechargement
-            busctl --user call org.gnome.Shell.Extensions /org/gnome/Shell/Extensions org.gnome.Shell.Extensions.ReloadExtensionsList 2>/dev/null || true
-        else
-            print_error "Échec de l'activation via gsettings"
-            
-            # Fallback: activer une par une avec gnome-extensions
-            print_status "Tentative d'activation individuelle..."
-            activated_count=0
-            for extension_uuid in "${!EXTENSIONS[@]}"; do
-                extension_dir="$HOME/.local/share/gnome-shell/extensions/${extension_uuid}"
-                
-                if [ -d "$extension_dir" ]; then
-                    if gnome-extensions enable "$extension_uuid" 2>/dev/null; then
-                        print_verbose "✓ $extension_uuid activé"
-                        ((activated_count++))
-                    else
-                        print_verbose "✗ Échec: $extension_uuid"
-                    fi
-                fi
-            done
-            print_success "$activated_count extensions activées (fallback)"
-        fi
-    else
-        print_warning "Aucune extension à activer"
+        # Ajouter les extensions manquantes
+        for ext_uuid in "${failed_extensions[@]}"; do
+            if [[ ! "$current_enabled" =~ "$ext_uuid" ]]; then
+                # Utiliser dconf directement pour ajouter à la liste
+                dconf write /org/gnome/shell/enabled-extensions "$(dconf read /org/gnome/shell/enabled-extensions | sed "s/]$/, '$ext_uuid']/")" 2>/dev/null
+                log "✓ $ext_uuid ajouté via dconf"
+                ((activated_count++))
+            fi
+        done
     fi
+    
+    print_success "$activated_count extensions activées"
+    
+    # Méthode 3: Forcer le rechargement complet de GNOME Shell Extensions
+    log "Rechargement de la liste des extensions..."
+    busctl --user call org.gnome.Shell.Extensions /org/gnome/Shell/Extensions org.gnome.Shell.Extensions.ReloadExtensionsList 2>/dev/null || true
+    
+    # Afficher la liste finale
+    final_enabled=$(gsettings get org.gnome.shell enabled-extensions 2>/dev/null)
+    log "Extensions configurées dans gsettings: $final_enabled"
     
 else
     print_dry_run "Activation des extensions installées"
