@@ -333,9 +333,88 @@ restore_defaults() {
     gsettings reset org.gnome.desktop.interface monospace-font-name 2>/dev/null
     gsettings reset org.gnome.shell.extensions.user-theme name 2>/dev/null
     
+    # Restaurer le fond d'écran par défaut
+    gsettings reset org.gnome.desktop.background picture-uri 2>/dev/null
+    gsettings reset org.gnome.desktop.background picture-options 2>/dev/null
+    
     print_success "Paramètres par défaut Ubuntu restaurés"
-    print_status "Les fichiers personnalisés (thèmes, icônes, polices) restent installés dans ~/.themes, ~/.icons et ~/.local/share/fonts"
-    print_status "Pour les supprimer complètement, exécutez: rm -rf ~/.themes/Lavanda* ~/.icons/Uos* ~/.icons/Bibata*"
+    
+    # Demander si l'utilisateur souhaite supprimer les fichiers installés
+    if [ "$INTERACTIVE" = true ]; then
+        echo ""
+        echo -e "${YELLOW}═══════════════════════════════════════════════════════════════════════${NC}"
+        echo -e "${YELLOW}⚠️  Souhaitez-vous également supprimer tous les fichiers installés ?${NC}"
+        echo -e "${YELLOW}═══════════════════════════════════════════════════════════════════════${NC}"
+        echo ""
+        echo "Cela supprimera :"
+        echo "  • Thèmes dans ~/.themes/ (Lavanda-*)"
+        echo "  • Icônes dans ~/.icons/ (Uos-*, Bibata-*)"
+        echo "  • Curseurs dans ~/.icons/ (Bibata-*)"
+        echo "  • Polices dans ~/.local/share/fonts/ (Comfortaa, Poppins)"
+        echo "  • Extensions GNOME téléchargées"
+        echo "  • Fond d'écran personnalisé"
+        echo ""
+        echo -e "${CYAN}Note: Les packages système installés (via apt) seront conservés${NC}"
+        echo ""
+        
+        read -p "Supprimer tous les fichiers installés ? [o/N] " -n 1 -r
+        echo ""
+        
+        if [[ $REPLY =~ ^[OoYy]$ ]]; then
+            print_status "Suppression des fichiers installés..."
+            
+            # Supprimer les thèmes
+            if [ -d "$HOME/.themes" ]; then
+                rm -rf "$HOME/.themes/Lavanda"* 2>/dev/null && print_verbose "Thèmes Lavanda supprimés"
+            fi
+            
+            # Supprimer les icônes et curseurs
+            if [ -d "$HOME/.icons" ]; then
+                rm -rf "$HOME/.icons/Uos"* 2>/dev/null && print_verbose "Icônes Uos supprimées"
+                rm -rf "$HOME/.icons/Bibata"* 2>/dev/null && print_verbose "Curseurs Bibata supprimés"
+            fi
+            
+            # Supprimer les polices
+            if [ -d "$HOME/.local/share/fonts" ]; then
+                rm -rf "$HOME/.local/share/fonts/Comfortaa" 2>/dev/null && print_verbose "Police Comfortaa supprimée"
+                rm -rf "$HOME/.local/share/fonts/Poppins" 2>/dev/null && print_verbose "Police Poppins supprimée"
+                # Mettre à jour le cache des polices
+                fc-cache -f -v >/dev/null 2>&1 && print_verbose "Cache des polices mis à jour"
+            fi
+            
+            # Supprimer les extensions GNOME
+            if [ -d "$HOME/.local/share/gnome-shell/extensions" ]; then
+                for extension_uuid in "${!EXTENSIONS[@]}"; do
+                    rm -rf "$HOME/.local/share/gnome-shell/extensions/$extension_uuid" 2>/dev/null
+                done
+                print_verbose "Extensions GNOME supprimées"
+            fi
+            
+            # Supprimer le fond d'écran personnalisé
+            if [ -f "$HOME/.local/share/backgrounds/enhanced-ubuntu-wallpaper.png" ]; then
+                rm -f "$HOME/.local/share/backgrounds/enhanced-ubuntu-wallpaper.png" 2>/dev/null
+                print_verbose "Fond d'écran personnalisé supprimé"
+            fi
+            
+            print_success "Tous les fichiers personnalisés ont été supprimés"
+            echo ""
+            echo -e "${CYAN}💡 Pour supprimer également les packages système installés, exécutez :${NC}"
+            echo -e "${CYAN}   sudo apt autoremove gnome-shell-extensions chrome-gnome-shell${NC}"
+        else
+            echo ""
+            print_status "Les fichiers personnalisés restent installés dans:"
+            echo "  • ~/.themes/"
+            echo "  • ~/.icons/"
+            echo "  • ~/.local/share/fonts/"
+            echo "  • ~/.local/share/gnome-shell/extensions/"
+            echo ""
+            echo -e "${CYAN}💡 Pour les supprimer manuellement plus tard :${NC}"
+            echo -e "${CYAN}   rm -rf ~/.themes/Lavanda* ~/.icons/Uos* ~/.icons/Bibata* ~/.local/share/fonts/{Comfortaa,Poppins}${NC}"
+        fi
+    else
+        print_status "Les fichiers personnalisés restent installés (mode non-interactif)"
+        print_status "Pour les supprimer: rm -rf ~/.themes/Lavanda* ~/.icons/Uos* ~/.icons/Bibata*"
+    fi
 }
 
 # Fonction pour afficher le menu principal

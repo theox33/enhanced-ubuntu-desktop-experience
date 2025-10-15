@@ -21,7 +21,10 @@
   - Désactive toutes les extensions personnalisées
   - Réactive les extensions Ubuntu (ubuntu-dock, tiling-assistant, etc.)
   - Restaure tous les thèmes, icônes, curseurs et polices par défaut
-  - Conserve les fichiers installés pour une réinstallation future
+  - **Option de suppression complète** : Demande si l'utilisateur veut supprimer tous les fichiers installés
+  - Suppression sélective : thèmes, icônes, polices, extensions, fond d'écran
+  - Mode interactif avec confirmation avant suppression
+  - Conservation des packages système (apt) par défaut
 
 - **Nouvelles options en ligne de commande**
   - `--install` : Installation directe sans menu

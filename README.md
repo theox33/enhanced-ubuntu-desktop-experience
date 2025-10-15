@@ -113,6 +113,9 @@ gnome-tweaks
 ### Restaurer Ubuntu par défaut
 ```bash
 ./install.sh --remove
+# En mode interactif, vous serez invité à choisir si vous voulez :
+# - Juste restaurer les paramètres par défaut (conserver les fichiers)
+# - OU supprimer complètement tous les fichiers installés (thèmes, icônes, polices, extensions)
 ```
 
 ### Consulter les logs
