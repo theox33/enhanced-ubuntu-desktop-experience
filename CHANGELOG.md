@@ -1,5 +1,63 @@
 # Changelog
 
+## Version 2.2.2 (15 octobre 2025)
+
+### 🛡️ Nouvelle fonctionnalité : Détection d'installation existante
+
+- **Prévention de double installation**
+  - Le script détecte automatiquement si Enhanced Ubuntu est déjà installé
+  - Empêche l'option "Installer" (menu option 1) si déjà présent
+  - Bloque `./install.sh --install` avec message d'erreur explicatif
+  - Affiche les composants détectés (fond d'écran, thème, icônes, curseurs, polices)
+
+- **Critères de détection**
+  - Vérification de 5 indicateurs clés :
+    1. Fond d'écran personnalisé (`~/.local/share/backgrounds/enhanced-ubuntu-wallpaper.png`)
+    2. Thème Lavanda dans `~/.themes/`
+    3. Icônes Uos dans `~/.icons/`
+    4. Curseurs Bibata dans `~/.icons/`
+    5. Police Comfortaa dans `~/.local/share/fonts/`
+  - Seuil : 3+ indicateurs présents = installation détectée
+
+- **Guidage utilisateur amélioré**
+  - Instructions claires pour réinstaller (d'abord `--remove`, puis `--install`)
+  - Affichage visuel dans le menu (option 1 grisée avec "[DÉJÀ INSTALLÉ]")
+  - Message informatif au démarrage si détection positive
+  - Liste des composants détectés en mode ligne de commande
+
+### 🔧 Améliorations de l'activation des extensions
+
+- **Validation stricte des extensions installées**
+  - Vérification que `metadata.json` existe avant de marquer comme installée
+  - Échec de compilation des schémas = suppression de l'extension
+  - Nettoyage automatique des extensions invalides ou corrompues
+
+- **Activation intelligente**
+  - Suivi des extensions installées avec succès uniquement
+  - Configuration via gsettings pour activation au prochain login
+  - Plus de tentatives d'activation durant l'installation (ne fonctionne pas)
+  - Abandon de `gnome-extensions enable` (pas fiable pendant l'installation)
+
+- **Meilleurs messages utilisateur**
+  - "Configurées pour activation" au lieu de "activées"
+  - Instructions claires : déconnexion/reconnexion requise
+  - Commande de vérification fournie : `gnome-extensions list --enabled`
+
+### 🎨 Améliorations visuelles
+
+- **Nouvelles couleurs ajoutées**
+  - `DIM` (texte grisé) pour l'option désactivée
+  - `BOLD` (texte gras) pour les accents importants
+  - Meilleure hiérarchie visuelle dans les messages
+
+### 📝 Documentation
+
+- Ajout de `DETECTION-INSTALLATION.md` - Documentation complète de la détection
+- Mise à jour de `README.md` avec section sur la détection
+- Mise à jour de `CHANGELOG.md` avec détails complets
+
+---
+
 ## Version 2.2.0 (15 octobre 2025)
 
 ### 🎉 Nouvelles fonctionnalités majeures

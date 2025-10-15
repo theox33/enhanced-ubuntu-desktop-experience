@@ -3,10 +3,10 @@
 #==============================================================================
 # Script d'installation de la configuration GNOME personnalisée
 # Pour Ubuntu Desktop avec GNOME
-# Version 2.2.0 - Menu interactif, activation extensions, backup/restore
+# Version 2.2.2 - Détection d'installation existante, protection double install
 #==============================================================================
 
-VERSION="2.2.0"
+VERSION="2.2.2"
 
 # Déterminer le chemin absolu du script IMMÉDIATEMENT (avant tout cd)
 # Ceci doit être fait en premier pour éviter les problèmes de chemin
@@ -23,6 +23,8 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 MAGENTA='\033[0;35m'
 CYAN='\033[0;36m'
+DIM='\033[2m'
+BOLD='\033[1m'
 NC='\033[0m' # No Color
 
 # Compteurs d'erreurs
@@ -427,8 +429,51 @@ restore_defaults() {
     fi
 }
 
+# Fonction pour vérifier si Enhanced Ubuntu est déjà installé
+is_enhanced_ubuntu_installed() {
+    local indicators=0
+    
+    # Vérifier le fond d'écran personnalisé
+    if [ -f "$HOME/.local/share/backgrounds/enhanced-ubuntu-wallpaper.png" ]; then
+        ((indicators++))
+    fi
+    
+    # Vérifier le thème Lavanda
+    if [ -d "$HOME/.themes/Lavanda-Sea" ] || find "$HOME/.themes/" -maxdepth 1 -type d -iname "*lavanda*" 2>/dev/null | grep -q .; then
+        ((indicators++))
+    fi
+    
+    # Vérifier les icônes Uos
+    if [ -d "$HOME/.icons/Uos-fulldistro-icons" ] || find "$HOME/.icons/" -maxdepth 1 -type d -iname "*uos*" 2>/dev/null | grep -q .; then
+        ((indicators++))
+    fi
+    
+    # Vérifier les curseurs Bibata
+    if find "$HOME/.icons/" -maxdepth 1 -type d -iname "*bibata*" 2>/dev/null | grep -q .; then
+        ((indicators++))
+    fi
+    
+    # Vérifier les polices Comfortaa
+    if [ -d "$HOME/.local/share/fonts" ] && find "$HOME/.local/share/fonts" -type f -iname "*comfortaa*" 2>/dev/null | grep -q .; then
+        ((indicators++))
+    fi
+    
+    # Si au moins 3 indicateurs sont présents, considérer comme installé
+    if [ $indicators -ge 3 ]; then
+        return 0  # Déjà installé
+    else
+        return 1  # Pas installé
+    fi
+}
+
 # Fonction pour afficher le menu principal
 show_menu() {
+    # Vérifier si Enhanced Ubuntu est déjà installé
+    local already_installed=false
+    if is_enhanced_ubuntu_installed; then
+        already_installed=true
+    fi
+    
     echo -e "${CYAN}"
     cat << "EOF"
 ╔════════════════════════════════════════════════════════════════════════╗
@@ -437,7 +482,14 @@ show_menu() {
 EOF
     echo -e "${NC}"
     
-    echo -e "${GREEN}1)${NC} Installer la configuration GNOME personnalisée"
+    if [ "$already_installed" = true ]; then
+        echo -e "${CYAN}ℹ️  Enhanced Ubuntu Desktop est déjà installé sur ce système${NC}"
+        echo ""
+        echo -e "${YELLOW}1)${NC} ${DIM}Installer la configuration GNOME personnalisée${NC} ${RED}[DÉJÀ INSTALLÉ]${NC}"
+    else
+        echo -e "${GREEN}1)${NC} Installer la configuration GNOME personnalisée"
+    fi
+    
     echo -e "${YELLOW}2)${NC} Restaurer les paramètres par défaut Ubuntu"
     echo -e "${BLUE}3)${NC} Créer un backup des paramètres actuels"
     echo -e "${MAGENTA}4)${NC} Restaurer depuis un backup précédent"
@@ -448,6 +500,22 @@ EOF
     
     case $choice in
         1)
+            if [ "$already_installed" = true ]; then
+                echo ""
+                echo -e "${RED}════════════════════════════════════════════════════════════════════════${NC}"
+                echo -e "${RED}⚠️  Enhanced Ubuntu Desktop est déjà installé !${NC}"
+                echo -e "${RED}════════════════════════════════════════════════════════════════════════${NC}"
+                echo ""
+                echo -e "${YELLOW}Pour réinstaller, vous devez d'abord restaurer les paramètres par défaut :${NC}"
+                echo -e "  ${CYAN}1.${NC} Choisissez l'option ${YELLOW}2${NC} (Restaurer les paramètres par défaut)"
+                echo -e "  ${CYAN}2.${NC} Relancez le script et choisissez l'option ${GREEN}1${NC} (Installer)"
+                echo ""
+                echo -e "${CYAN}💡 Ou lancez directement : ${BOLD}./install.sh --remove${NC}"
+                echo ""
+                read -p "Appuyez sur Entrée pour revenir au menu..."
+                show_menu
+                return
+            fi
             ACTION="install"
             ;;
         2)
@@ -487,7 +555,7 @@ cat << "EOF"
 ║     ╚══════╝╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝╚══════╝       ║
 ║                                                                        ║
 ║            Ubuntu GNOME Desktop Experience Installer                   ║
-║                         Version 2.1.1                                  ║
+║                         Version 2.2.2                                  ║
 ║                                                                        ║
 ╚════════════════════════════════════════════════════════════════════════╝
 EOF
@@ -509,6 +577,31 @@ fi
 # Afficher le menu si aucune action n'est spécifiée
 if [ -z "$ACTION" ] && [ "$INTERACTIVE" = true ] && [ "$DRY_RUN" = false ]; then
     show_menu
+fi
+
+# Vérification si Enhanced Ubuntu est déjà installé (pour ACTION=install en ligne de commande)
+if [ "$ACTION" = "install" ] && [ "$DRY_RUN" = false ]; then
+    if is_enhanced_ubuntu_installed; then
+        echo ""
+        echo -e "${RED}════════════════════════════════════════════════════════════════════════${NC}"
+        echo -e "${RED}⚠️  Enhanced Ubuntu Desktop est déjà installé sur ce système !${NC}"
+        echo -e "${RED}════════════════════════════════════════════════════════════════════════${NC}"
+        echo ""
+        echo -e "${YELLOW}Les composants suivants ont été détectés :${NC}"
+        [ -f "$HOME/.local/share/backgrounds/enhanced-ubuntu-wallpaper.png" ] && echo -e "  ${GREEN}✓${NC} Fond d'écran personnalisé"
+        [ -d "$HOME/.themes/Lavanda-Sea" ] || find "$HOME/.themes/" -maxdepth 1 -type d -iname "*lavanda*" 2>/dev/null | grep -q . && echo -e "  ${GREEN}✓${NC} Thème Lavanda"
+        [ -d "$HOME/.icons/Uos-fulldistro-icons" ] || find "$HOME/.icons/" -maxdepth 1 -type d -iname "*uos*" 2>/dev/null | grep -q . && echo -e "  ${GREEN}✓${NC} Icônes Uos"
+        find "$HOME/.icons/" -maxdepth 1 -type d -iname "*bibata*" 2>/dev/null | grep -q . && echo -e "  ${GREEN}✓${NC} Curseurs Bibata"
+        [ -d "$HOME/.local/share/fonts" ] && find "$HOME/.local/share/fonts" -type f -iname "*comfortaa*" 2>/dev/null | grep -q . && echo -e "  ${GREEN}✓${NC} Police Comfortaa"
+        echo ""
+        echo -e "${CYAN}Pour réinstaller, restaurez d'abord les paramètres par défaut :${NC}"
+        echo -e "  ${YELLOW}./install.sh --remove${NC}"
+        echo ""
+        echo -e "${CYAN}Puis relancez l'installation :${NC}"
+        echo -e "  ${GREEN}./install.sh --install${NC}"
+        echo ""
+        exit 1
+    fi
 fi
 
 # Si action est backup uniquement

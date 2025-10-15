@@ -45,7 +45,7 @@ chmod +x install.sh
 Le script contient un fond d'écran encodé et doit pouvoir se lire lui-même pour l'extraire.
 
 Un menu interactif s'affichera avec 5 options :
-1. **Installer** - Configuration complète
+1. **Installer** - Configuration complète (bloqué si déjà installé)
 2. **Restaurer défauts** - Revenir à Ubuntu vanilla
 3. **Backup** - Sauvegarder les paramètres actuels
 4. **Restore** - Restaurer un backup
@@ -81,9 +81,10 @@ Un menu interactif s'affichera avec 5 options :
 8. ✅ Applique tous les paramètres d'apparence
 9. ✅ Génère un rapport détaillé avec statistiques
 
-### Fonctionnalités principales (v2.2.0)
+### Fonctionnalités principales (v2.2.2)
 
 - ✨ **Menu interactif** - Interface simple pour installer/restaurer/sauvegarder
+- 🛡️ **Détection d'installation** - Empêche la double installation (protection automatique)
 - 🔄 **Activation auto des extensions** - Les extensions fonctionnent immédiatement
 - 🖼️ **Fond d'écran intégré** - Image personnalisée encodée dans le script (pas de fichier externe)
 - 💾 **Backup/Restore** - Sauvegarde complète de vos paramètres
@@ -100,6 +101,21 @@ Un menu interactif s'affichera avec 5 options :
 **Wayland** : Déconnectez-vous et reconnectez-vous
 
 ## 🐛 Problèmes courants
+
+### Installation déjà présente
+```
+⚠️  Enhanced Ubuntu Desktop est déjà installé !
+```
+
+**Cause** : Le script détecte une installation existante (3+ composants présents).  
+**Solution** :
+```bash
+# Restaurer les paramètres par défaut d'abord
+./install.sh --remove
+
+# Puis réinstaller
+./install.sh --install
+```
 
 ### Fond d'écran non installé
 ```
