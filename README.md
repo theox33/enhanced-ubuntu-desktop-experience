@@ -74,13 +74,15 @@ Un menu interactif s'affichera avec 5 options :
 4. ✅ Installe et configure tout automatiquement
 5. ✅ **Installe et active 12 extensions GNOME**
 6. ✅ Configure Burn My Windows avec l'effet Hexagone
-7. ✅ Applique tous les paramètres d'apparence
-8. ✅ Génère un rapport détaillé avec statistiques
+7. ✅ **Applique un fond d'écran personnalisé (intégré au script)**
+8. ✅ Applique tous les paramètres d'apparence
+9. ✅ Génère un rapport détaillé avec statistiques
 
 ### Fonctionnalités principales (v2.2.0)
 
 - ✨ **Menu interactif** - Interface simple pour installer/restaurer/sauvegarder
 - 🔄 **Activation auto des extensions** - Les extensions fonctionnent immédiatement
+- 🖼️ **Fond d'écran intégré** - Image personnalisée encodée dans le script (pas de fichier externe)
 - 💾 **Backup/Restore** - Sauvegarde complète de vos paramètres
 - 🔙 **Restauration défauts** - Retour à Ubuntu vanilla en un clic
 - 📊 **Logging complet** - Fichiers de log détaillés avec timestamps

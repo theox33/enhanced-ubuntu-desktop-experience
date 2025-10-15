@@ -9,6 +9,13 @@
   - Navigation simple et intuitive
   - Affichage uniquement si aucune option en ligne de commande
 
+- **Fond d'écran personnalisé intégré** 🖼️
+  - Image encodée en base64 directement dans le script (3.4 MB)
+  - Pas de fichier externe nécessaire
+  - Installation automatique vers `~/.local/share/backgrounds/`
+  - Application automatique avec gsettings pour mode clair et sombre
+  - Option de zoom optimale
+
 - **Restauration des paramètres par défaut Ubuntu**
   - Nouvelle option `--remove` pour revenir à l'état par défaut
   - Désactive toutes les extensions personnalisées
