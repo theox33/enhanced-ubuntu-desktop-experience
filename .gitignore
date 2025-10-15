@@ -1,0 +1,21 @@
+# Fichiers temporaires
+*.tmp
+*.temp
+*~
+.DS_Store
+
+# Fichiers de téléchargement
+*.zip
+*.tar.gz
+*.tar.xz
+
+# Dossiers de build
+build/
+dist/
+
+# Fichiers personnels
+chat.txt
+
+# Backups
+*.bak
+install-old.sh.bak
