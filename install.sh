@@ -3,10 +3,10 @@
 #==============================================================================
 # Script d'installation de la configuration GNOME personnalisée
 # Pour Ubuntu Desktop avec GNOME
-# Version 2.1 - Améliorations : mode interactif, logs, dry-run, vérifications
+# Version 2.1.1 - Corrections : extensions, thème, connexion, auto-restart
 #==============================================================================
 
-VERSION="2.1.0"
+VERSION="2.1.1"
 
 # Couleurs pour les messages
 RED='\033[0;31m'
@@ -267,7 +267,7 @@ cat << "EOF"
 ║     ╚══════╝╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝╚══════╝     ║
 ║                                                                        ║
 ║            Ubuntu GNOME Desktop Experience Installer                  ║
-║                         Version 2.1.0                                  ║
+║                         Version 2.1.1                                  ║
 ║                                                                        ║
 ╚════════════════════════════════════════════════════════════════════════╝
 EOF
@@ -301,11 +301,44 @@ fi
 
 # Vérification de la connexion internet
 print_status "Vérification de la connexion internet..."
-if ping -c 1 -W 3 google.com &> /dev/null; then
+
+# Essayer plusieurs méthodes pour détecter la connexion
+check_internet() {
+    # Méthode 1: wget (plus fiable que ping)
+    if command_exists wget; then
+        if wget -q --spider --timeout=5 http://www.google.com 2>/dev/null; then
+            return 0
+        fi
+    fi
+    
+    # Méthode 2: curl
+    if command_exists curl; then
+        if curl -s --max-time 5 --head http://www.google.com &>/dev/null; then
+            return 0
+        fi
+    fi
+    
+    # Méthode 3: ping (fallback)
+    if ping -c 1 -W 3 8.8.8.8 &> /dev/null; then
+        return 0
+    fi
+    
+    return 1
+}
+
+if check_internet; then
     print_success "Connexion internet OK"
 else
-    print_error "Pas de connexion internet. Le script nécessite une connexion active."
-    exit 1
+    print_warning "Impossible de vérifier la connexion internet"
+    if [ "$INTERACTIVE" = true ]; then
+        if ! ask_confirmation "Continuer malgré l'impossibilité de vérifier la connexion?" "n"; then
+            print_error "Installation annulée par l'utilisateur"
+            exit 1
+        fi
+    else
+        print_error "Pas de connexion internet détectée. Le script nécessite une connexion active."
+        exit 1
+    fi
 fi
 
 # Vérification de la version de GNOME
@@ -604,13 +637,25 @@ if [ -f "Lavanda-gtk-theme.tar.gz" ] || [ "$DRY_RUN" = true ]; then
             cd Lavanda-gtk-theme-2024-04-28
             if [ -x "./install.sh" ]; then
                 print_verbose "Exécution du script d'installation du thème..."
-                ./install.sh -c dark -t blue --tweaks nord 2>/dev/null || {
-                    print_warning "Installation automatique du thème échouée, tentative manuelle..."
-                    if [ -d "themes" ]; then
-                        cp -r themes/* "$HOME/.themes/" 2>/dev/null
+                # Essai sans le paramètre -t qui cause l'erreur
+                if ./install.sh -c dark --tweaks nord 2>/dev/null; then
+                    print_success "Thème Lavanda installé via script automatique"
+                else
+                    print_warning "Installation automatique échouée, installation manuelle..."
+                    # Installation manuelle : chercher les thèmes dans le dossier extrait
+                    theme_installed=false
+                    for theme_dir in Lavanda* lavanda*; do
+                        if [ -d "$theme_dir" ] && [ -d "$theme_dir/gnome-shell" ]; then
+                            cp -r "$theme_dir" "$HOME/.themes/"
+                            print_verbose "Thème copié : $theme_dir"
+                            theme_installed=true
+                        fi
+                    done
+                    if [ "$theme_installed" = false ]; then
+                        print_warning "Aucun thème trouvé, installation de tous les variants..."
+                        ./install.sh --dest "$HOME/.themes" 2>/dev/null || print_error "Échec installation manuelle"
                     fi
-                }
-                print_success "Thème Lavanda installé"
+                fi
             else
                 print_error "Script d'installation du thème Lavanda non trouvé ou non exécutable"
             fi
@@ -658,20 +703,30 @@ install_gnome_extension() {
     fi
     
     local info_url="https://extensions.gnome.org/extension-info/?pk=${extension_id}&shell_version=${GNOME_VERSION}"
-    local download_url=$(curl -s --max-time 10 "$info_url" | grep -o '"download_url":"[^"]*' | cut -d'"' -f4)
+    print_verbose "info_url: $info_url"
+    local info_json=$(curl -s --max-time 10 "$info_url")
     
+    # Extraction de download_url avec python (plus robuste que grep/sed)
+    local download_url=$(echo "$info_json" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data.get('download_url', ''))" 2>/dev/null)
+    
+    # Fallback si python échoue : utilisation de grep/sed
+    if [ -z "$download_url" ]; then
+        download_url=$(echo "$info_json" | grep -oP '"download_url"\s*:\s*"\K[^"]+')
+    fi
+
     if [ -z "$download_url" ]; then
         print_warning "Impossible de trouver l'URL de téléchargement pour $extension_uuid (peut-être incompatible avec GNOME $GNOME_VERSION)"
+        print_verbose "Contenu JSON retourné par l'API : $info_json"
         return 1
     fi
-    
+
     print_verbose "URL de téléchargement: https://extensions.gnome.org${download_url}"
-    
+
     local extension_file="${extension_uuid}.zip"
     if wget -q --timeout=30 "https://extensions.gnome.org${download_url}" -O "$extension_file"; then
         local extension_dir="$HOME/.local/share/gnome-shell/extensions/${extension_uuid}"
         mkdir -p "$extension_dir"
-        
+
         if unzip -o -q "$extension_file" -d "$extension_dir"; then
             if [ -d "$extension_dir/schemas" ]; then
                 glib-compile-schemas "$extension_dir/schemas/" 2>/dev/null
@@ -697,12 +752,18 @@ extension_success=0
 for extension_uuid in "${!EXTENSIONS[@]}"; do
     ((extension_count++))
     extension_id="${EXTENSIONS[$extension_uuid]}"
+    print_verbose "Installation pour GNOME_VERSION=$GNOME_VERSION"
     if install_gnome_extension "$extension_uuid" "$extension_id"; then
         ((extension_success++))
     fi
 done
 
 print_status "$extension_success/$extension_count extensions installées avec succès"
+
+# Si aucune extension n'a pu être installée, afficher un message explicite
+if [ "$extension_success" -eq 0 ]; then
+    print_error "Aucune extension GNOME n'a pu être installée. Vérifiez la compatibilité des extensions avec GNOME $GNOME_VERSION, la connexion internet, ou consultez le log pour le détail des erreurs."
+fi
 
 # Désactivation des extensions par défaut
 if [ "$DRY_RUN" = false ]; then
@@ -789,25 +850,32 @@ if [ "$DRY_RUN" = false ]; then
         fi
     fi
     
-    # Thème GTK avec détection automatique
+    # Thème GTK avec détection automatique améliorée
     THEME_NAME="Lavanda-Sea"
-    if [ -d "$HOME/.themes/$THEME_NAME" ] || [ -d "/usr/share/themes/$THEME_NAME" ]; then
-        gsettings set org.gnome.desktop.interface gtk-theme "$THEME_NAME" 2>/dev/null
-        print_success "Thème GTK appliqué: $THEME_NAME"
+    FOUND_THEME=""
+    
+    # Chercher le thème dans les deux emplacements possibles
+    if [ -d "$HOME/.themes/$THEME_NAME" ]; then
+        FOUND_THEME="$THEME_NAME"
+    elif [ -d "/usr/share/themes/$THEME_NAME" ]; then
+        FOUND_THEME="$THEME_NAME"
     else
-        FOUND_THEME=$(ls "$HOME/.themes/" 2>/dev/null | grep -i lavanda | head -n 1)
-        if [ -n "$FOUND_THEME" ]; then
-            gsettings set org.gnome.desktop.interface gtk-theme "$FOUND_THEME" 2>/dev/null
-            print_success "Thème GTK appliqué: $FOUND_THEME"
-            THEME_NAME="$FOUND_THEME"
-        else
-            print_warning "Aucun thème Lavanda trouvé"
-        fi
+        # Chercher tous les variants Lavanda installés
+        FOUND_THEME=$(find "$HOME/.themes/" /usr/share/themes/ -maxdepth 1 -type d -iname "*lavanda*" 2>/dev/null | head -n 1 | xargs -r basename)
+    fi
+    
+    if [ -n "$FOUND_THEME" ]; then
+        gsettings set org.gnome.desktop.interface gtk-theme "$FOUND_THEME" 2>/dev/null
+        print_success "Thème GTK appliqué: $FOUND_THEME"
+        THEME_NAME="$FOUND_THEME"
+    else
+        print_warning "Aucun thème Lavanda trouvé. Le thème par défaut sera utilisé."
+        THEME_NAME="Yaru"  # Fallback sur le thème par défaut Ubuntu
     fi
     
     # Thème Shell
     gsettings set org.gnome.shell.extensions.user-theme name "$THEME_NAME" 2>/dev/null
-    print_success "Thème Shell appliqué: $THEME_NAME"
+    print_success "Thème Shell configuré: $THEME_NAME"
 else
     print_dry_run "Application des polices, icônes, curseurs et thèmes"
 fi
@@ -878,6 +946,22 @@ if [ "$DRY_RUN" = false ]; then
         echo -e "${CYAN}💾 Backup disponible: $backup_dir${NC}"
         echo -e "${CYAN}   Pour restaurer: dconf load /org/gnome/desktop/ < $backup_dir/desktop-settings.dconf${NC}"
         echo ""
+    fi
+    
+    # Proposition de redémarrage GNOME Shell
+    if [ "$extension_success" -gt 0 ] && [ "$INTERACTIVE" = true ]; then
+        # Détection du serveur d'affichage
+        if [ "$XDG_SESSION_TYPE" = "x11" ]; then
+            echo ""
+            if ask_confirmation "Redémarrer GNOME Shell maintenant pour activer les extensions? (X11)" "y"; then
+                print_status "Redémarrage de GNOME Shell..."
+                killall -3 gnome-shell 2>/dev/null || busctl --user call org.gnome.Shell /org/gnome/Shell org.gnome.Shell Eval s 'Meta.restart("Redémarrage...")' 2>/dev/null
+                print_success "GNOME Shell redémarré. Les extensions devraient maintenant être actives."
+            fi
+        else
+            echo ""
+            echo -e "${YELLOW}ℹ️  Vous êtes sous Wayland. Déconnectez-vous et reconnectez-vous pour activer les extensions.${NC}"
+        fi
     fi
 fi
 

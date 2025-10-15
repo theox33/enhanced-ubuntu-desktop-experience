@@ -1,5 +1,45 @@
 # Changelog
 
+## Version 2.1.1 (15 octobre 2025)
+
+### 🐛 Corrections de bugs
+
+- **Correction de l'installation des extensions GNOME**
+  - Fix du parsing JSON de l'API extensions.gnome.org
+  - Utilisation de Python pour parser le JSON (plus robuste)
+  - Fallback grep si Python n'est pas disponible
+  - Toutes les 12 extensions s'installent maintenant correctement
+
+- **Amélioration de l'installation du thème Lavanda**
+  - Suppression du paramètre `-t blue` qui causait une erreur
+  - Ajout d'un fallback manuel si le script automatique échoue
+  - Copie manuelle des thèmes si nécessaire
+  - Installation de tous les variants disponibles en dernier recours
+
+- **Amélioration de la détection du thème**
+  - Recherche dans `~/.themes/` ET `/usr/share/themes/`
+  - Utilisation de `find` pour une détection robuste
+  - Fallback sur le thème Yaru si Lavanda n'est pas trouvé
+  - Message plus explicite si le thème n'est pas installé
+
+- **Vérification de la connexion internet**
+  - Méthode multi-fallback : wget → curl → ping
+  - Utilisation de `8.8.8.8` (IP) au lieu de noms de domaine
+  - Évite les problèmes de résolution DNS ou ICMP bloqué
+
+- **Redémarrage automatique de GNOME Shell** (nouveau)
+  - Proposition de redémarrer GNOME Shell après installation (mode interactif)
+  - Détection automatique X11 vs Wayland
+  - Redémarrage automatique sur X11 si l'utilisateur accepte
+  - Avertissement pour Wayland (nécessite déconnexion/reconnexion)
+
+### 📝 Documentation
+
+- Suppression de `FEATURES-2.1.md` (contenu redondant avec README.md)
+- Simplification de la structure documentaire (3 fichiers MD principaux)
+
+---
+
 ## Version 2.1 (15 octobre 2025)
 
 ### 🎉 Nouvelles fonctionnalités
