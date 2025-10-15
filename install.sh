@@ -8,6 +8,14 @@
 
 VERSION="2.2.0"
 
+# Déterminer le chemin absolu du script IMMÉDIATEMENT (avant tout cd)
+# Ceci doit être fait en premier pour éviter les problèmes de chemin
+if [ -n "${BASH_SOURCE[0]}" ]; then
+    SCRIPT_REAL_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+else
+    SCRIPT_REAL_PATH="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+fi
+
 # Couleurs pour les messages
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -1114,44 +1122,17 @@ if [ "$DRY_RUN" = false ]; then
     # Nom du fichier de fond d'écran
     WALLPAPER_FILE="$WALLPAPER_DIR/enhanced-ubuntu-wallpaper.png"
     
-    # Obtenir le chemin absolu du script
-    # Utiliser BASH_SOURCE qui est plus fiable que $0
-    if [ -n "${BASH_SOURCE[0]}" ]; then
-        SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
-    else
-        SCRIPT_PATH="$(readlink -f "$0")"
-    fi
+    # Utiliser le chemin du script détecté au début (avant tout cd)
+    SCRIPT_PATH="$SCRIPT_REAL_PATH"
     
-    log "Détection du chemin du script: \$0=$0, BASH_SOURCE=${BASH_SOURCE[0]}, PWD=$PWD, résolu=$SCRIPT_PATH"
+    log "Utilisation du chemin du script sauvegardé: $SCRIPT_PATH"
     
-    # Vérifier que le script existe à l'endroit résolu
+    # Vérifier que le script existe
     if [ ! -f "$SCRIPT_PATH" ]; then
-        print_warning "Le script n'existe pas à l'emplacement résolu: $SCRIPT_PATH"
-        log "Tentative de fallback..."
-        
-        # Essayer avec $0 directement (sans readlink)
-        if [ -f "$0" ]; then
-            SCRIPT_PATH="$0"
-            log "✓ Fallback: utilisation de \$0=$SCRIPT_PATH"
-        # Essayer avec BASH_SOURCE directement
-        elif [ -n "${BASH_SOURCE[0]}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
-            SCRIPT_PATH="${BASH_SOURCE[0]}"
-            log "✓ Fallback: utilisation de BASH_SOURCE=$SCRIPT_PATH"
-        # Essayer le répertoire courant + nom du script
-        elif [ -f "$PWD/install.sh" ]; then
-            SCRIPT_PATH="$PWD/install.sh"
-            log "✓ Fallback: utilisation de PWD/install.sh=$SCRIPT_PATH"
-        # Essayer simplement ./install.sh
-        elif [ -f "./install.sh" ]; then
-            SCRIPT_PATH="./install.sh"
-            log "✓ Fallback: utilisation de ./install.sh"
-        else
-            print_error "Impossible de localiser le script. Installation du fond d'écran ignorée."
-            print_error "Le script doit être exécuté depuis son dossier d'origine."
-            log "❌ Tous les fallbacks ont échoué: \$0=$0, PWD=$PWD, BASH_SOURCE=${BASH_SOURCE[0]}"
-            ERRORS=$((ERRORS + 1))
-            SCRIPT_PATH=""
-        fi
+        print_error "Le script n'existe pas à l'emplacement sauvegardé: $SCRIPT_PATH"
+        print_error "Ceci ne devrait pas arriver. Le script a peut-être été supprimé pendant l'exécution."
+        ERRORS=$((ERRORS + 1))
+        SCRIPT_PATH=""
     else
         log "✓ Chemin du script validé: $SCRIPT_PATH"
     fi
