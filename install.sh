@@ -1111,24 +1111,45 @@ if [ "$DRY_RUN" = false ]; then
     WALLPAPER_FILE="$WALLPAPER_DIR/enhanced-ubuntu-wallpaper.png"
     
     # Obtenir le chemin absolu du script
-    SCRIPT_PATH="$(readlink -f "$0")"
+    # Utiliser BASH_SOURCE qui est plus fiable que $0
+    if [ -n "${BASH_SOURCE[0]}" ]; then
+        SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
+    else
+        SCRIPT_PATH="$(readlink -f "$0")"
+    fi
+    
+    log "Détection du chemin du script: \$0=$0, BASH_SOURCE=${BASH_SOURCE[0]}, PWD=$PWD, résolu=$SCRIPT_PATH"
     
     # Vérifier que le script existe à l'endroit résolu
     if [ ! -f "$SCRIPT_PATH" ]; then
-        print_error "Le script n'existe pas à l'emplacement résolu: $SCRIPT_PATH"
-        print_error "Le script a peut-être été déplacé ou supprimé pendant l'exécution."
-        print_error "Lancez le script depuis son dossier d'origine: cd /chemin/vers/script && ./install.sh"
-        log "Tentative avec \$0=$0"
+        print_warning "Le script n'existe pas à l'emplacement résolu: $SCRIPT_PATH"
+        log "Tentative de fallback..."
         
-        # Essayer avec $0 directement
+        # Essayer avec $0 directement (sans readlink)
         if [ -f "$0" ]; then
             SCRIPT_PATH="$0"
-            log "Utilisation de \$0 comme chemin du script"
+            log "✓ Fallback: utilisation de \$0=$SCRIPT_PATH"
+        # Essayer avec BASH_SOURCE directement
+        elif [ -n "${BASH_SOURCE[0]}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
+            SCRIPT_PATH="${BASH_SOURCE[0]}"
+            log "✓ Fallback: utilisation de BASH_SOURCE=$SCRIPT_PATH"
+        # Essayer le répertoire courant + nom du script
+        elif [ -f "$PWD/install.sh" ]; then
+            SCRIPT_PATH="$PWD/install.sh"
+            log "✓ Fallback: utilisation de PWD/install.sh=$SCRIPT_PATH"
+        # Essayer simplement ./install.sh
+        elif [ -f "./install.sh" ]; then
+            SCRIPT_PATH="./install.sh"
+            log "✓ Fallback: utilisation de ./install.sh"
         else
             print_error "Impossible de localiser le script. Installation du fond d'écran ignorée."
+            print_error "Le script doit être exécuté depuis son dossier d'origine."
+            log "❌ Tous les fallbacks ont échoué: \$0=$0, PWD=$PWD, BASH_SOURCE=${BASH_SOURCE[0]}"
             ERRORS=$((ERRORS + 1))
             SCRIPT_PATH=""
         fi
+    else
+        log "✓ Chemin du script validé: $SCRIPT_PATH"
     fi
     
     # Procéder à l'extraction seulement si le script est accessible
