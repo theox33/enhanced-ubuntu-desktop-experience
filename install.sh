@@ -3,10 +3,10 @@
 #==============================================================================
 # Script d'installation de la configuration GNOME personnalisée
 # Pour Ubuntu Desktop avec GNOME
-# Version 2.1.1 - Corrections : extensions, thème, connexion, auto-restart
+# Version 2.2.0 - Menu interactif, activation extensions, backup/restore
 #==============================================================================
 
-VERSION="2.1.1"
+VERSION="2.2.0"
 
 # Couleurs pour les messages
 RED='\033[0;31m'
@@ -27,6 +27,7 @@ VERBOSE=false
 INTERACTIVE=true
 SKIP_UPGRADE=false
 LOG_FILE="$HOME/gnome-install-$(date +%Y%m%d-%H%M%S).log"
+ACTION="" # install, remove, backup, restore
 
 # Fonction pour afficher l'aide
 show_help() {
@@ -45,10 +46,17 @@ OPTIONS:
     --skip-upgrade          Sauter la mise à niveau du système (apt upgrade)
     --log FILE              Chemin personnalisé pour le fichier de log
                             (défaut: ~/gnome-install-YYYYMMDD-HHMMSS.log)
+    --install               Installer directement (sans menu)
+    --remove                Restaurer les thèmes par défaut
+    --backup                Créer uniquement un backup
+    --restore               Restaurer depuis un backup
 
 EXEMPLES:
-    $0                      Installation normale (interactive)
-    $0 -y                   Installation automatique
+    $0                      Menu interactif
+    $0 --install            Installation directe
+    $0 --remove             Désinstaller et restaurer défauts Ubuntu
+    $0 --backup             Créer un backup seulement
+    $0 -y --install         Installation automatique
     $0 -d                   Simuler l'installation
     $0 -v --skip-upgrade    Mode verbeux sans mise à niveau système
     $0 -y --log /tmp/install.log  Installation auto avec log personnalisé
@@ -93,6 +101,22 @@ while [[ $# -gt 0 ]]; do
         --log)
             LOG_FILE="$2"
             shift 2
+            ;;
+        --install)
+            ACTION="install"
+            shift
+            ;;
+        --remove)
+            ACTION="remove"
+            shift
+            ;;
+        --backup)
+            ACTION="backup"
+            shift
+            ;;
+        --restore)
+            ACTION="restore"
+            shift
             ;;
         *)
             echo "Option inconnue: $1"
@@ -247,7 +271,114 @@ restore_backup() {
         dconf load /org/gnome/shell/ < "$backup_dir/shell-settings.dconf"
     fi
     
+    if [ -f "$backup_dir/enabled-extensions.txt" ]; then
+        # Désactiver toutes les extensions actuelles
+        gnome-extensions list --enabled | while read ext; do
+            gnome-extensions disable "$ext" 2>/dev/null
+        done
+        
+        # Réactiver les extensions du backup
+        while read ext; do
+            gnome-extensions enable "$ext" 2>/dev/null
+        done < "$backup_dir/enabled-extensions.txt"
+    fi
+    
     print_success "Restauration terminée"
+}
+
+# Fonction pour restaurer les paramètres par défaut Ubuntu
+restore_defaults() {
+    print_status "Restauration des paramètres par défaut Ubuntu..."
+    
+    if [ "$DRY_RUN" = true ]; then
+        print_dry_run "Restauration des paramètres par défaut"
+        return 0
+    fi
+    
+    # Désactiver toutes les extensions personnalisées
+    print_status "Désactivation des extensions personnalisées..."
+    declare -A EXTENSIONS=(
+        ["blur-my-shell@aunetx"]="3193"
+        ["burn-my-windows@schneegans.github.com"]="4679"
+        ["clipboard-indicator@tudmotu.com"]="779"
+        ["compiz-alike-magic-lamp-effect@hermes83.github.com"]="3740"
+        ["compiz-windows-effect@hermes83.github.com"]="3210"
+        ["CoverflowAltTab@palatis.blogspot.com"]="97"
+        ["dash-to-dock@micxgx.gmail.com"]="307"
+        ["desktop-cube@schneegans.github.com"]="4648"
+        ["gsconnect@andyholmes.github.io"]="1319"
+        ["mediacontrols@cliffniff.github.com"]="4470"
+        ["search-light@ferrarodomenico.com"]="5489"
+        ["user-theme@gnome-shell-extensions.gcampax.github.com"]="19"
+    )
+    
+    for extension_uuid in "${!EXTENSIONS[@]}"; do
+        gnome-extensions disable "$extension_uuid" 2>/dev/null
+        print_verbose "$extension_uuid désactivé"
+    done
+    
+    # Réactiver les extensions Ubuntu par défaut
+    print_status "Réactivation des extensions Ubuntu par défaut..."
+    gnome-extensions enable ubuntu-dock@ubuntu.com 2>/dev/null && print_verbose "ubuntu-dock activé"
+    gnome-extensions enable tiling-assistant@ubuntu.com 2>/dev/null && print_verbose "tiling-assistant activé"
+    gnome-extensions enable ubuntu-appindicators@ubuntu.com 2>/dev/null && print_verbose "ubuntu-appindicators activé"
+    
+    # Restaurer les thèmes par défaut
+    print_status "Restauration des thèmes par défaut..."
+    gsettings reset org.gnome.desktop.interface gtk-theme 2>/dev/null
+    gsettings reset org.gnome.desktop.interface icon-theme 2>/dev/null
+    gsettings reset org.gnome.desktop.interface cursor-theme 2>/dev/null
+    gsettings reset org.gnome.desktop.interface font-name 2>/dev/null
+    gsettings reset org.gnome.desktop.interface document-font-name 2>/dev/null
+    gsettings reset org.gnome.desktop.interface monospace-font-name 2>/dev/null
+    gsettings reset org.gnome.shell.extensions.user-theme name 2>/dev/null
+    
+    print_success "Paramètres par défaut Ubuntu restaurés"
+    print_status "Les fichiers personnalisés (thèmes, icônes, polices) restent installés dans ~/.themes, ~/.icons et ~/.local/share/fonts"
+    print_status "Pour les supprimer complètement, exécutez: rm -rf ~/.themes/Lavanda* ~/.icons/Uos* ~/.icons/Bibata*"
+}
+
+# Fonction pour afficher le menu principal
+show_menu() {
+    echo -e "${CYAN}"
+    cat << "EOF"
+╔════════════════════════════════════════════════════════════════════════╗
+║                          MENU PRINCIPAL                                ║
+╚════════════════════════════════════════════════════════════════════════╝
+EOF
+    echo -e "${NC}"
+    
+    echo -e "${GREEN}1)${NC} Installer la configuration GNOME personnalisée"
+    echo -e "${YELLOW}2)${NC} Restaurer les paramètres par défaut Ubuntu"
+    echo -e "${BLUE}3)${NC} Créer un backup des paramètres actuels"
+    echo -e "${MAGENTA}4)${NC} Restaurer depuis un backup précédent"
+    echo -e "${RED}5)${NC} Quitter"
+    echo ""
+    
+    read -p "Choisissez une option [1-5]: " choice
+    
+    case $choice in
+        1)
+            ACTION="install"
+            ;;
+        2)
+            ACTION="remove"
+            ;;
+        3)
+            ACTION="backup"
+            ;;
+        4)
+            ACTION="restore"
+            ;;
+        5)
+            echo "Au revoir!"
+            exit 0
+            ;;
+        *)
+            echo -e "${RED}Option invalide!${NC}"
+            exit 1
+            ;;
+    esac
 }
 
 #==============================================================================
@@ -285,6 +416,47 @@ if [ "$DRY_RUN" = true ]; then
     echo "╚════════════════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
 fi
+
+# Afficher le menu si aucune action n'est spécifiée
+if [ -z "$ACTION" ] && [ "$INTERACTIVE" = true ] && [ "$DRY_RUN" = false ]; then
+    show_menu
+fi
+
+# Si action est backup uniquement
+if [ "$ACTION" = "backup" ]; then
+    create_backup
+    print_success "Backup créé avec succès!"
+    exit 0
+fi
+
+# Si action est restore uniquement
+if [ "$ACTION" = "restore" ]; then
+    if [ "$INTERACTIVE" = true ]; then
+        echo "Backups disponibles:"
+        ls -dt "$HOME"/.gnome-config-backup-* 2>/dev/null | head -5 | nl
+        echo ""
+        read -p "Entrez le chemin complet du backup à restaurer (ou Entrée pour le dernier): " backup_path
+    fi
+    restore_backup "$backup_path"
+    exit 0
+fi
+
+# Si action est remove
+if [ "$ACTION" = "remove" ]; then
+    if [ "$INTERACTIVE" = true ]; then
+        echo ""
+        echo -e "${YELLOW}⚠️  Cette action va restaurer les paramètres par défaut Ubuntu${NC}"
+        if ! ask_confirmation "Voulez-vous continuer?"; then
+            print_warning "Opération annulée"
+            exit 0
+        fi
+    fi
+    restore_defaults
+    print_success "Restauration terminée! Reconnectez-vous pour appliquer les changements."
+    exit 0
+fi
+
+# Sinon, continuer avec l'installation (ACTION=install ou pas d'ACTION en mode non-interactif)
 
 # Vérification de l'espace disque
 print_status "Vérification de l'espace disque disponible..."
@@ -777,13 +949,41 @@ fi
 # Activation des nouvelles extensions
 if [ "$DRY_RUN" = false ]; then
     print_status "Activation des nouvelles extensions..."
+    
+    # Attendre un peu pour que GNOME Shell détecte les nouvelles extensions
+    sleep 2
+    
+    activated_count=0
+    failed_extensions=()
+    
     for extension_uuid in "${!EXTENSIONS[@]}"; do
+        extension_dir="$HOME/.local/share/gnome-shell/extensions/${extension_uuid}"
+        
+        # Vérifier si l'extension est installée
+        if [ ! -d "$extension_dir" ]; then
+            print_verbose "$extension_uuid non installé, activation ignorée"
+            continue
+        fi
+        
+        # Essayer d'activer l'extension
         if gnome-extensions enable "$extension_uuid" 2>/dev/null; then
-            print_verbose "$extension_uuid activé"
+            print_verbose "✓ $extension_uuid activé"
+            ((activated_count++))
         else
-            print_warning "Impossible d'activer $extension_uuid (peut nécessiter un redémarrage)"
+            print_warning "✗ Impossible d'activer $extension_uuid"
+            failed_extensions+=("$extension_uuid")
         fi
     done
+    
+    print_success "$activated_count extensions activées"
+    
+    if [ ${#failed_extensions[@]} -gt 0 ]; then
+        print_warning "Extensions non activées (nécessitent un redémarrage): ${failed_extensions[*]}"
+    fi
+    
+    # Forcer le rechargement de la liste des extensions
+    busctl --user call org.gnome.Shell.Extensions /org/gnome/Shell/Extensions org.gnome.Shell.Extensions.ReloadExtensionsList 2>/dev/null || true
+    
 else
     print_dry_run "Activation des extensions installées"
 fi
@@ -924,10 +1124,19 @@ echo -e "${GREEN}║                                                            
 if [ "$DRY_RUN" = false ]; then
     echo -e "${GREEN}║  🔄 Pour appliquer les changements:                        ║${NC}"
     echo -e "${GREEN}║                                                            ║${NC}"
-    echo -e "${GREEN}║  1. Déconnectez-vous                                       ║${NC}"
-    echo -e "${GREEN}║  2. Reconnectez-vous                                       ║${NC}"
-    echo -e "${GREEN}║                                                            ║${NC}"
-    echo -e "${GREEN}║  Ou: Alt+F2 → tapez 'r' → Entrée (X11 uniquement)         ║${NC}"
+    
+    if [ "$XDG_SESSION_TYPE" = "x11" ]; then
+        echo -e "${GREEN}║  Option 1 (Rapide - X11):                                  ║${NC}"
+        echo -e "${GREEN}║    Alt+F2 → tapez 'r' → Entrée                            ║${NC}"
+        echo -e "${GREEN}║                                                            ║${NC}"
+        echo -e "${GREEN}║  Option 2 (Recommandé):                                    ║${NC}"
+        echo -e "${GREEN}║    1. Déconnectez-vous                                     ║${NC}"
+        echo -e "${GREEN}║    2. Reconnectez-vous                                     ║${NC}"
+    else
+        echo -e "${GREEN}║  Sous Wayland, vous devez:                                 ║${NC}"
+        echo -e "${GREEN}║    1. Déconnectez-vous                                     ║${NC}"
+        echo -e "${GREEN}║    2. Reconnectez-vous                                     ║${NC}"
+    fi
 fi
 
 echo -e "${GREEN}║                                                            ║${NC}"
@@ -955,12 +1164,22 @@ if [ "$DRY_RUN" = false ]; then
             echo ""
             if ask_confirmation "Redémarrer GNOME Shell maintenant pour activer les extensions? (X11)" "y"; then
                 print_status "Redémarrage de GNOME Shell..."
-                killall -3 gnome-shell 2>/dev/null || busctl --user call org.gnome.Shell /org/gnome/Shell org.gnome.Shell Eval s 'Meta.restart("Redémarrage...")' 2>/dev/null
-                print_success "GNOME Shell redémarré. Les extensions devraient maintenant être actives."
+                
+                # Méthode 1: via busctl (plus propre)
+                if busctl --user call org.gnome.Shell /org/gnome/Shell org.gnome.Shell Eval s 'Meta.restart("Redémarrage pour activer les extensions...")' 2>/dev/null; then
+                    print_success "GNOME Shell redémarré via busctl"
+                # Méthode 2: killall (fallback)
+                elif killall -3 gnome-shell 2>/dev/null; then
+                    print_success "GNOME Shell redémarré via killall"
+                else
+                    print_warning "Impossible de redémarrer GNOME Shell automatiquement"
+                    print_status "Utilisez Alt+F2, tapez 'r' et appuyez sur Entrée"
+                fi
             fi
         else
             echo ""
             echo -e "${YELLOW}ℹ️  Vous êtes sous Wayland. Déconnectez-vous et reconnectez-vous pour activer les extensions.${NC}"
+            echo -e "${CYAN}   Les extensions installées: $extension_success sur $extension_count${NC}"
         fi
     fi
 fi

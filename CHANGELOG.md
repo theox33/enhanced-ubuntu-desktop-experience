@@ -1,5 +1,57 @@
 # Changelog
 
+## Version 2.2.0 (15 octobre 2025)
+
+### 🎉 Nouvelles fonctionnalités majeures
+
+- **Menu interactif principal**
+  - Menu au démarrage avec 5 options : Installer, Restaurer défauts, Backup, Restore, Quitter
+  - Navigation simple et intuitive
+  - Affichage uniquement si aucune option en ligne de commande
+
+- **Restauration des paramètres par défaut Ubuntu**
+  - Nouvelle option `--remove` pour revenir à l'état par défaut
+  - Désactive toutes les extensions personnalisées
+  - Réactive les extensions Ubuntu (ubuntu-dock, tiling-assistant, etc.)
+  - Restaure tous les thèmes, icônes, curseurs et polices par défaut
+  - Conserve les fichiers installés pour une réinstallation future
+
+- **Nouvelles options en ligne de commande**
+  - `--install` : Installation directe sans menu
+  - `--remove` : Restaurer les paramètres Ubuntu par défaut
+  - `--backup` : Créer uniquement un backup
+  - `--restore` : Restaurer depuis un backup précédent
+
+- **Activation automatique des extensions GNOME** ✨
+  - Les extensions s'activent maintenant **automatiquement** après installation
+  - Pause de 2 secondes pour permettre la détection par GNOME Shell
+  - Vérification que chaque extension est installée avant activation
+  - Compteur d'extensions activées avec succès
+  - Liste des extensions qui nécessitent un redémarrage
+  - Rechargement forcé de la liste via busctl
+
+### 🔧 Améliorations
+
+- **Redémarrage GNOME Shell amélioré**
+  - Méthode busctl en priorité (plus fiable)
+  - Fallback sur killall si busctl échoue
+  - Instructions manuelles si tout échoue
+  - Messages adaptés selon X11/Wayland
+
+- **Restauration de backup enrichie**
+  - Restaure maintenant aussi les extensions activées
+  - Lit le fichier `enabled-extensions.txt` du backup
+  - Désactive toutes les extensions actuelles avant restauration
+  - Liste des backups disponibles en mode interactif
+
+### 📝 Documentation
+
+- Ajout de CHANGELOG-v2.2.0.md avec détails complets
+- Mise à jour de l'aide (--help) avec nouvelles options
+- Exemples d'utilisation pour chaque mode
+
+---
+
 ## Version 2.1.1 (15 octobre 2025)
 
 ### 🐛 Corrections de bugs
