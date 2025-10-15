@@ -1030,6 +1030,48 @@ if [ "$extension_success" -eq 0 ]; then
     print_error "Aucune extension GNOME n'a pu être installée. Vérifiez la compatibilité des extensions avec GNOME $GNOME_VERSION, la connexion internet, ou consultez le log pour le détail des erreurs."
 fi
 
+# Redémarrer GNOME Shell pour détecter les nouvelles extensions
+if [ "$DRY_RUN" = false ] && [ "$extension_success" -gt 0 ]; then
+    print_status "Rechargement de GNOME Shell pour détecter les nouvelles extensions..."
+    
+    # Forcer le rechargement de la liste des extensions
+    busctl --user call org.gnome.Shell.Extensions /org/gnome/Shell/Extensions org.gnome.Shell.Extensions.ReloadExtensionsList 2>/dev/null || true
+    
+    # Détection du serveur d'affichage
+    if [ "$XDG_SESSION_TYPE" = "x11" ]; then
+        # Sous X11, on peut redémarrer GNOME Shell directement
+        print_status "Redémarrage de GNOME Shell (X11)..."
+        if busctl --user call org.gnome.Shell /org/gnome/Shell org.gnome.Shell Eval s 'Meta.restart("Rechargement des extensions...")' 2>/dev/null; then
+            print_success "GNOME Shell redémarré"
+            sleep 3  # Attendre que GNOME Shell redémarre complètement
+        else
+            print_warning "Impossible de redémarrer GNOME Shell automatiquement"
+            print_status "Redémarrage manuel: Alt+F2 → tapez 'r' → Entrée"
+            if [ "$INTERACTIVE" = true ]; then
+                echo -n "Appuyez sur Entrée après avoir redémarré GNOME Shell..."
+                read
+            fi
+        fi
+    else
+        # Sous Wayland, on ne peut pas redémarrer GNOME Shell sans se déconnecter
+        print_warning "Session Wayland détectée - impossible de redémarrer GNOME Shell automatiquement"
+        print_status "Pour activer les extensions:"
+        print_status "  1. Déconnectez-vous (ou appuyez sur Ctrl+C et relancez ce script après déconnexion)"
+        print_status "  2. Reconnectez-vous"
+        print_status "  3. Les extensions seront alors activées automatiquement"
+        
+        if [ "$INTERACTIVE" = true ]; then
+            echo ""
+            if ask_confirmation "Voulez-vous continuer sans activer les extensions maintenant? (nécessitera une déconnexion)" "y"; then
+                print_status "Les extensions seront activées lors de la prochaine connexion"
+            else
+                print_status "Installation interrompue. Relancez le script après vous être déconnecté."
+                exit 0
+            fi
+        fi
+    fi
+fi
+
 # Désactivation des extensions par défaut
 if [ "$DRY_RUN" = false ]; then
     print_status "Désactivation des extensions par défaut..."
@@ -1333,30 +1375,11 @@ if [ "$DRY_RUN" = false ]; then
         echo ""
     fi
     
-    # Proposition de redémarrage GNOME Shell
-    if [ "$extension_success" -gt 0 ] && [ "$INTERACTIVE" = true ]; then
-        # Détection du serveur d'affichage
-        if [ "$XDG_SESSION_TYPE" = "x11" ]; then
-            echo ""
-            if ask_confirmation "Redémarrer GNOME Shell maintenant pour activer les extensions? (X11)" "y"; then
-                print_status "Redémarrage de GNOME Shell..."
-                
-                # Méthode 1: via busctl (plus propre)
-                if busctl --user call org.gnome.Shell /org/gnome/Shell org.gnome.Shell Eval s 'Meta.restart("Redémarrage pour activer les extensions...")' 2>/dev/null; then
-                    print_success "GNOME Shell redémarré via busctl"
-                # Méthode 2: killall (fallback)
-                elif killall -3 gnome-shell 2>/dev/null; then
-                    print_success "GNOME Shell redémarré via killall"
-                else
-                    print_warning "Impossible de redémarrer GNOME Shell automatiquement"
-                    print_status "Utilisez Alt+F2, tapez 'r' et appuyez sur Entrée"
-                fi
-            fi
-        else
-            echo ""
-            echo -e "${YELLOW}ℹ️  Vous êtes sous Wayland. Déconnectez-vous et reconnectez-vous pour activer les extensions.${NC}"
-            echo -e "${CYAN}   Les extensions installées: $extension_success sur $extension_count${NC}"
-        fi
+    # Rappel final pour Wayland
+    if [ "$extension_success" -gt 0 ] && [ "$XDG_SESSION_TYPE" != "x11" ]; then
+        echo ""
+        echo -e "${YELLOW}⚠️  RAPPEL: Sous Wayland, les extensions ne seront actives qu'après déconnexion/reconnexion${NC}"
+        echo -e "${CYAN}   Extensions installées: $extension_success sur $extension_count${NC}"
     fi
 fi
 
